@@ -10,13 +10,15 @@ URDF_REL="mycobot_description/urdf/mycobot_280_m5/mycobot_280_m5.urdf"
 
 mkdir -p "${ROOT}/third_party"
 
-if [[ -f "${SIBLING}/${URDF_REL}" && ! -e "${DEST}" ]]; then
+if [[ -L "${DEST}" ]]; then
+  echo "Using symlink: ${DEST} -> $(readlink -f "${DEST}")"
+elif [[ -f "${SIBLING}/${URDF_REL}" && ! -e "${DEST}" ]]; then
   ln -s "$(cd "${SIBLING}" && pwd)" "${DEST}"
   echo "Symlinked sibling checkout: ${DEST} -> ${SIBLING}"
 elif [[ -d "${DEST}/.git" ]]; then
   git -C "${DEST}" fetch --depth 1 origin || true
   git -C "${DEST}" pull --ff-only || true
-elif [[ -L "${DEST}" || -d "${DEST}" ]]; then
+elif [[ -d "${DEST}" ]]; then
   echo "Using existing ${DEST}"
 else
   git clone --depth 1 "${URL}" "${DEST}"
