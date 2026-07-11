@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Install and verify Isaac Lab on the Isaac Sim host (required for Phase 2 PPO).
+# Install Isaac Lab on the Isaac Sim **host** (Phase 3 residual SAC prerequisite).
 #
 # Prerequisites:
-#   - Isaac Sim pre-built at ~/isaacsim (or ISAACSIM_PATH)
+#   - Isaac Sim at ~/isaacsim or ISAACSIM_PATH (directory containing python.sh)
 #   - git, cmake, build-essential
 #
-# Usage:
+# Usage (host terminal):
 #   ./scripts/host/install_isaac_lab.sh
 #   ./scripts/host/install_isaac_lab.sh --verify-only
 #   ISAACLAB_PATH=$HOME/IsaacLab ./scripts/host/install_isaac_lab.sh
@@ -34,6 +34,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -f /.dockerenv && "${SPARK_ALLOW_CONTAINER_ISAAC:-0}" != "1" ]]; then
+  echo "Install Isaac Lab from the DGX Spark **host** shell (not this container)." >&2
+  echo "  ${REPO_ROOT}/scripts/host/install_isaac_lab.sh" >&2
+  exit 2
+fi
+
 spark_host_require_native_shell || true
 spark_host_check_prereqs
 
@@ -46,7 +52,7 @@ exec > >(tee -a "${LOG_PATH}") 2>&1
 
 echo "=== Isaac Lab install ==="
 echo "Log: ${LOG_PATH}"
-echo "ISAACSIM_PATH=${ISAACSIM_PATH}"
+echo "ISAACSIM_PATH=${ISAACSIM_PATH:-}"
 echo "SPARK_ISAACLAB_BRANCH=${SPARK_ISAACLAB_BRANCH}"
 echo "SPARK_ISAACLAB_RL_FRAMEWORK=${SPARK_ISAACLAB_RL_FRAMEWORK}"
 
@@ -67,11 +73,15 @@ if [[ "${VERIFY_ONLY}" -eq 0 ]]; then
   fi
 
   if [[ ! -e "${ISAACLAB_PATH}/_isaac_sim" ]]; then
+    if [[ -z "${ISAACSIM_PATH:-}" || ! -d "${ISAACSIM_PATH}" ]]; then
+      echo "ISAACSIM_PATH is not a directory; cannot link _isaac_sim." >&2
+      exit 1
+    fi
     echo "Linking ${ISAACLAB_PATH}/_isaac_sim -> ${ISAACSIM_PATH}"
     ln -sfn "${ISAACSIM_PATH}" "${ISAACLAB_PATH}/_isaac_sim"
   fi
 
-  local conda_stub="${ISAACLAB_PATH}/_isaac_sim/setup_conda_env.sh"
+  conda_stub="${ISAACLAB_PATH}/_isaac_sim/setup_conda_env.sh"
   if [[ ! -f "${conda_stub}" ]]; then
     echo "Creating Isaac Sim setup_conda_env.sh stub for pre-built binary installs"
     cat > "${conda_stub}" <<'EOF'
@@ -83,7 +93,7 @@ EOF
   fi
 
   if ! command -v cmake >/dev/null 2>&1; then
-    echo "Installing cmake/build-essential (required by rsl_rl/robomimic deps)..."
+    echo "Installing cmake/build-essential (required by rsl_rl deps)..."
     sudo apt-get update -qq
     sudo apt-get install -y cmake build-essential
   fi
@@ -102,19 +112,5 @@ echo "=== Verify Isaac Lab imports ==="
   ./isaaclab.sh -p "${REPO_ROOT}/isaac_lab/detect_isaac_lab.py"
 )
 
-echo "=== Verify repo Isaac Lab integration (imports) ==="
-(
-  cd "${ISAACLAB_PATH}"
-  export TERM="${TERM:-xterm-256color}"
-  ./isaaclab.sh -p "${REPO_ROOT}/isaac_lab/verify_install.py" --headless
-) || exit 1
-
-echo "=== Verify headless env smoke ==="
-(
-  cd "${ISAACLAB_PATH}"
-  export TERM="${TERM:-xterm-256color}"
-  ./isaaclab.sh -p "${REPO_ROOT}/isaac_lab/verify_install.py" --headless --smoke-env --steps 4
-) || exit 1
-
-echo "=== Isaac Lab install verified ==="
-echo "Next: ./scripts/host/run_isaac_lab_training.sh train --max-iterations 10"
+echo "=== Isaac Lab install verified (import detect) ==="
+echo "Phase 3 residual env is not implemented yet — see STATUS.md / spec.md."

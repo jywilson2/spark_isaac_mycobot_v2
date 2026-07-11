@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Run Isaac Lab unit tests and integration verification on the host.
+# Verify Isaac Lab is installed on the **host** (Phase 3 prerequisite).
 #
-# Usage:
+# Usage (host terminal after isaac-ros activate / native shell):
 #   ./scripts/host/verify_isaac_lab.sh
-#   ./scripts/host/verify_isaac_lab.sh --smoke-env
-#   ./scripts/host/verify_isaac_lab.sh --smoke-train
+#
+# Inside the Isaac ROS / Cursor container this script exits early unless you
+# set SPARK_ALLOW_CONTAINER_ISAAC=1 and point ISAACSIM_PATH / ISAACLAB_PATH at
+# a mounted host install.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,69 +17,33 @@ source "${SCRIPT_DIR}/env.isaac_host.sh"
 # shellcheck source=../../isaac_lab/versions.env
 source "${REPO_ROOT}/isaac_lab/versions.env"
 
-SMOKE_ENV=0
-SMOKE_TRAIN=0
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --smoke-env)
-      SMOKE_ENV=1
-      shift
-      ;;
-    --smoke-train)
-      SMOKE_TRAIN=1
-      shift
-      ;;
-    *)
-      echo "Unknown option: $1" >&2
-      exit 1
-      ;;
-  esac
-done
+if [[ -f /.dockerenv && "${SPARK_ALLOW_CONTAINER_ISAAC:-0}" != "1" ]]; then
+  echo "Isaac Lab verification is intended for the DGX Spark **host** shell." >&2
+  echo "  isaac-ros activate   # host" >&2
+  echo "  ${REPO_ROOT}/scripts/host/verify_isaac_lab.sh" >&2
+  echo "Or mount Isaac and set SPARK_ALLOW_CONTAINER_ISAAC=1 ISAACSIM_PATH=... ISAACLAB_PATH=..." >&2
+  exit 2
+fi
 
-spark_host_apply_env
+spark_host_apply_env || {
+  echo "Isaac Sim python.sh not found. Set ISAACSIM_PATH or ISAACSIM_PYTHON_EXE." >&2
+  exit 1
+}
+
 export ISAACLAB_PATH="${ISAACLAB_PATH:-${SPARK_ISAACLAB_PATH}}"
 export SPARK_REPO_ROOT="${REPO_ROOT}"
-export PYTEST_TMPDIR="${PYTEST_TMPDIR:-/tmp/spark_pytest_${USER:-$(id -un)}}"
-mkdir -p "${PYTEST_TMPDIR}"
 
 if [[ ! -x "${ISAACLAB_PATH}/isaaclab.sh" ]]; then
-  echo "Isaac Lab not installed. Run: ${REPO_ROOT}/scripts/host/install_isaac_lab.sh" >&2
+  echo "Isaac Lab not installed at ${ISAACLAB_PATH}." >&2
+  echo "Run: ${REPO_ROOT}/scripts/host/install_isaac_lab.sh" >&2
   exit 1
 fi
 
-echo "=== Container-safe unit tests (mdp + detect) ==="
-python3 -m pytest \
-  -o "basetemp=${PYTEST_TMPDIR}" \
-  "${REPO_ROOT}/isaac_lab/test/test_mdp_contract.py" \
-  "${REPO_ROOT}/isaac_lab/test/test_detect_isaac_lab.py" \
-  "${REPO_ROOT}/isaac_lab/test/test_training_defaults.py" \
-  -q
-
 echo "=== Host Isaac Lab detect ==="
-"${ISAACLAB_PATH}/isaaclab.sh" -p "${REPO_ROOT}/isaac_lab/detect_isaac_lab.py"
-
-echo "=== Host Isaac Lab integration verify ==="
-VERIFY_ARGS=(--headless)
-if [[ "${SMOKE_ENV}" -eq 1 ]]; then
-  VERIFY_ARGS+=(--smoke-env --steps 8)
-fi
 (
   cd "${ISAACLAB_PATH}"
-  ./isaaclab.sh -p "${REPO_ROOT}/isaac_lab/verify_install.py" "${VERIFY_ARGS[@]}"
+  ./isaaclab.sh -p "${REPO_ROOT}/isaac_lab/detect_isaac_lab.py"
 )
 
-echo "=== Host pytest (integration gate) ==="
-python3 -m pytest -o "basetemp=${PYTEST_TMPDIR}" \
-  "${REPO_ROOT}/isaac_lab/test/test_isaac_lab_integration.py" -q
-
-if [[ "${SMOKE_TRAIN}" -eq 1 ]]; then
-  echo "=== Headless PPO integration train (DGX Spark: 8 arms, 30 min default) ==="
-  (
-    cd "${ISAACLAB_PATH}"
-    ./isaaclab.sh -p "${REPO_ROOT}/isaac_lab/train_ppo.py" \
-      --headless --viz none --enable_cameras \
-      --num-arms 8
-  )
-fi
-
-echo "Isaac Lab verification complete."
+echo "Isaac Lab detect complete."
+echo "Note: Phase 3 residual env / SAC training scripts are not wired yet (see STATUS.md)."

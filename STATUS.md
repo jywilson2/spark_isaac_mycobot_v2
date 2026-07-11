@@ -15,7 +15,7 @@ Last updated: **2026-07-11**
 | Item | Status |
 |------|--------|
 | Repo layout / configs / stubs | Done |
-| `git init` + `origin` remote | Done (push pending GitHub repo create) |
+| `git init` + `origin` remote | Done (`wip_phase1` pushed; `main` at prior tip) |
 | Multi-root `.code-workspace` | Done |
 | Ownership / `chmod +x` scripts | Done |
 | URDF FK (vendor + kinematics asset) | Done |
@@ -46,10 +46,11 @@ If git reports dubious ownership:
 
 ## Suggested next steps
 
-1. Create GitHub repo `jywilson2/spark_isaac_mycobot_v2` (if empty remote) and `git push -u origin HEAD`.
+1. Merge `wip_phase1` → `main` on GitHub when ready.
 2. Implement Phase 2 supervised residual data generation + MLP training stubs → real training.
 3. Wire Isaac Lab residual env only after Phase 2 acceptance tests pass.
 4. Keep hardware paths dry-run until `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
+5. Align `.cursorrules` / `spec.md` host-vs-container Isaac guidance with how you actually launch Sim/Lab.
 
 ## Related docs
 

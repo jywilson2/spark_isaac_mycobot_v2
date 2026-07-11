@@ -149,3 +149,7 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 | `STATUS.md` / `docs/last_prompt.md` | **Updated** | Phase 1 complete; next Phase 2 |
 
 **Review recommended:** residual/workspace validation edge cases; host vs container Isaac guidance in `.cursorrules` / `spec.md` if Isaac Sim is now runnable from this environment.
+| `isaac_lab/versions.env` | **Created** | Unblocks host install/verify scripts (was missing after v1 port) |
+| `isaac_lab/detect_isaac_lab.py` | **Created** | Minimal import detect for Phase 3 prep |
+| `scripts/host/verify_isaac_lab.sh` | **Fixed** | No longer requires v1 PPO test tree; clear container vs host exit |
+| `scripts/host/install_isaac_lab.sh` | **Fixed** | Same; Phase 3 wording; drops missing verify_install.py calls |
