@@ -1,0 +1,14 @@
+joint_limits_deg:
+  joint1: [-165.0, 165.0]
+  joint2: [-165.0, 165.0]
+  joint3: [-165.0, 165.0]
+  joint4: [-165.0, 165.0]
+  joint5: [-165.0, 165.0]
+  joint6: [-179.0, 179.0]
+velocity_limits_deg_s:
+  joint1: 30.0
+  joint2: 30.0
+  joint3: 30.0
+  joint4: 30.0
+  joint5: 30.0
+  joint6: 30.0

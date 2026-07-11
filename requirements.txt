@@ -1,0 +1,10 @@
+# Core (Phase 1)
+numpy>=1.24
+pyyaml>=6.0
+pytest>=7.4
+
+# Phase 2+ (install when starting supervised / SAC work)
+# torch>=2.0
+
+# Optional kinematics backends (uncomment if available on platform)
+# pin>=2.6.0

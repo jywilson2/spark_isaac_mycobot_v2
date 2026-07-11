@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<!-- Kinematics-only MyCobot 280 M5 chain for Phase 1 FK tests (no meshes).
+     Extracted from elephantrobotics/mycobot_ros2 mycobot_280_m5.urdf. -->
+<robot name="mycobot_280_m5_kinematics">
+  <link name="g_base"/>
+  <link name="joint1"/>
+  <link name="joint2"/>
+  <link name="joint3"/>
+  <link name="joint4"/>
+  <link name="joint5"/>
+  <link name="joint6"/>
+  <link name="joint6_flange"/>
+
+  <joint name="g_base_to_joint1" type="fixed">
+    <parent link="g_base"/>
+    <child link="joint1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="joint2_to_joint1" type="revolute">
+    <parent link="joint1"/>
+    <child link="joint2"/>
+    <origin xyz="0 0 0.13156" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.9321" upper="2.9321" effort="1000" velocity="0"/>
+  </joint>
+
+  <joint name="joint3_to_joint2" type="revolute">
+    <parent link="joint2"/>
+    <child link="joint3"/>
+    <origin xyz="0 0 0" rpy="0 1.5708 -1.5708"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.4434" upper="2.4434" effort="1000" velocity="0"/>
+  </joint>
+
+  <joint name="joint4_to_joint3" type="revolute">
+    <parent link="joint3"/>
+    <child link="joint4"/>
+    <origin xyz="-0.1104 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.6179" upper="2.6179" effort="1000" velocity="0"/>
+  </joint>
+
+  <joint name="joint5_to_joint4" type="revolute">
+    <parent link="joint4"/>
+    <child link="joint5"/>
+    <origin xyz="-0.096 0 0.06462" rpy="0 0 -1.5708"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.6179" upper="2.6179" effort="1000" velocity="0"/>
+  </joint>
+
+  <joint name="joint6_to_joint5" type="revolute">
+    <parent link="joint5"/>
+    <child link="joint6"/>
+    <origin xyz="0 -0.07318 0" rpy="1.5708 -1.5708 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.7052" upper="2.7925" effort="1000" velocity="0"/>
+  </joint>
+
+  <joint name="joint6output_to_joint6" type="revolute">
+    <parent link="joint6"/>
+    <child link="joint6_flange"/>
+    <origin xyz="0 0.0456 0" rpy="-1.5708 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="1000" velocity="0"/>
+  </joint>
+</robot>

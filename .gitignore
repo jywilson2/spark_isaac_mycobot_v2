@@ -1,0 +1,44 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+*.npz
+*.parquet
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ROS 2 colcon
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Generated / large assets
+assets/datasets/*
+!assets/datasets/.gitkeep
+assets/checkpoints/*
+!assets/checkpoints/.gitkeep
+assets/logs/*
+!assets/logs/.gitkeep
+assets/urdf/*
+!assets/urdf/README.md
+!assets/urdf/mycobot_280_m5_kinematics.urdf
+assets/usd/*
+!assets/usd/README.md
+assets/meshes/*
+!assets/meshes/README.md
+
+# Vendor clone (optional submodule)
+third_party/mycobot_ros2/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+!.vscode/settings.json

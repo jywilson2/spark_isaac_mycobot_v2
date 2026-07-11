@@ -1,0 +1,27 @@
+algorithm: SAC
+action_space: residual_joint_delta
+max_residual_deg: 0.5
+training:
+  total_steps: 1000000
+  batch_size: 1024
+  gamma: 0.99
+  tau: 0.005
+  actor_learning_rate: 0.0003
+  critic_learning_rate: 0.0003
+  entropy_auto_tune: true
+  seed: 42
+  # Optional warm-start from Phase 2
+  supervised_checkpoint: assets/checkpoints/supervised_residual/best.pt
+reward:
+  w_pos: 100.0
+  w_ori: 10.0
+  w_residual: 0.1
+  w_joint_limit: 10.0
+  w_smooth: 0.1
+  w_invalid: 100.0
+  success_bonus: 10.0
+success:
+  # Simulation success threshold — do not claim as hardware accuracy
+  position_error_m: 0.001
+  orientation_error_rad: 0.01
+checkpoint_dir: assets/checkpoints/sac_residual

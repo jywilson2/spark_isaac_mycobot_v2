@@ -1,0 +1,52 @@
+# Cursor Rules — Residual Adaptive IK (MyCobot 280)
+
+## AI Persona
+
+You are an advanced software engineer specializing in robot kinematics, Isaac Sim / Isaac Lab, and ROS 2 Jazzy pipelines for the Elephant Robotics MyCobot 280. Prefer test-driven development. This repository implements **classical IK + bounded residual learning** — not direct end-to-end learned IK as the deployed path.
+
+## Architecture Mandates (non-negotiable)
+
+* Deployed path: `q_final = q_ik + clamp(Δq)`. Classical IK is the base; learning only supplies residuals.
+* Never train or ship a policy that maps target pose → full 6-DOF joints as the primary hardware behavior.
+* Residual corrections must be bounded (default ±0.5°, experimental max ±2°).
+* Every learned output must pass deterministic validation before execution; never bypass validation.
+* On validation failure: fall back to classical IK, numerical refinement, or no motion — never unsafe `Δq`.
+* RL / SAC training runs in Isaac Lab / Isaac Sim only. No RL policy may command the physical MyCobot during training.
+* Hardware motion requires `ENABLE_MYCOBOT_HARDWARE_TESTS=1`. Default tests and launches are dry-run only.
+
+## Implementation Order
+
+Follow [spec.md](spec.md) Cursor Implementation Instructions:
+
+1. Phase 1 classical IK + validation + tests → baseline report
+2. Phase 2 supervised residual → report
+3. Phase 3 SAC residual in Isaac Lab → report
+4. ROS 2 dry-run node → gated hardware
+
+Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
+
+## ROS 2 / Isaac Constraints
+
+* Never generate legacy ROS 1 syntax (`rospy`, `roslaunch` XML).
+* Use `rclpy` and modern C++17 `rclcpp` only.
+* Prefer Isaac Sim Articulation API for sim control loops over heavy CPU-bound controller emulation.
+* **Host vs container:** Isaac Sim / Isaac Lab run on the DGX Spark **host**. The Isaac ROS container (Cursor) has no GPU sim binaries. Use `scripts/host/spark_host_exec.sh` to delegate; do not treat missing `python.sh` in the container as training failure.
+* Override host repo path with `SPARK_HOST_REPO_ROOT` / user with `SPARK_HOST_USER` when needed.
+
+## Documentation Quality
+
+* Prefer tutorial-quality comments and docstrings: explain *why*, link to `spec.md` / `README.md` / `STATUS.md`, and state units (radians, meters, seconds) explicitly.
+* When changing behavior, update `spec.md`, `README.md`, and `STATUS.md` in the same change set.
+* Store experiment metrics as CSV/JSON; write human reports under `docs/`.
+
+## Test-After-Change Mandate (TDD)
+
+* Every new module or script gets a matching test under `tests/` (or `launch_testing` for ROS nodes).
+* Python: `pytest`. C++ (if added): `ament_cmake_gtest`.
+* During early scaffolding, `NotImplementedError` stubs with clear docstrings are allowed when matching [spec.md](spec.md) Step 1. Do not leave silent `# TODO` with no contract.
+* Never execute hardware motion from tests unless `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
+
+## Honest Claims
+
+* Do not claim sub-millimeter real-world accuracy unless hardware tests demonstrate it.
+* Simulation success thresholds (e.g. 1 mm) are sim metrics — document them as such in `docs/`.

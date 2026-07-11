@@ -1,0 +1,17 @@
+mode: validation_only
+enable_learning: false
+# Hardware defaults — motion only when ENABLE_MYCOBOT_HARDWARE_TESTS=1
+max_joint_step_deg: 2.0
+max_residual_deg: 0.5
+max_cartesian_step_m: 0.005
+hardware_speed_scale: 0.1
+topics:
+  target_pose: /residual_ik/target_pose
+  joint_states: /joint_states
+  enable_learning: /residual_ik/enable_learning
+  joint_command: /residual_ik/joint_command
+  diagnostics: /residual_ik/diagnostics
+  status: /residual_ik/status
+pymycobot:
+  port: /dev/ttyAMA0
+  baud: 115200

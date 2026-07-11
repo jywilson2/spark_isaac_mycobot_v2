@@ -1,0 +1,28 @@
+robot_name: mycobot_280
+num_joints: 6
+units:
+  joint_angles: radians
+  position: meters
+working_radius_m: 0.280
+payload_limit_kg: 0.250
+nominal_repeatability_m: 0.0005
+joint_names:
+  - joint1
+  - joint2
+  - joint3
+  - joint4
+  - joint5
+  - joint6
+# Revolute URDF joint names in q[0]…q[5] order (mycobot_280_m5)
+urdf_revolute_joints:
+  - joint2_to_joint1
+  - joint3_to_joint2
+  - joint4_to_joint3
+  - joint5_to_joint4
+  - joint6_to_joint5
+  - joint6output_to_joint6
+# Prefer vendor URDF when third_party/mycobot_ros2 is present
+urdf_hint: third_party/mycobot_ros2/mycobot_description/urdf/mycobot_280_m5/mycobot_280_m5.urdf
+urdf_kinematics_asset: assets/urdf/mycobot_280_m5_kinematics.urdf
+ee_link: joint6_flange
+base_link: g_base

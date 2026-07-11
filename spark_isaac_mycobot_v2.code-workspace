@@ -1,0 +1,18 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "v2 residual IK (active)"
+    },
+    {
+      "path": "../spark_isaac_mycobot_demo",
+      "name": "v1 demo (reference)"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true
+    }
+  }
+}
