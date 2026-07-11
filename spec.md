@@ -250,12 +250,14 @@ spark_isaac_mycobot_v2/          # residual adaptive IK for MyCobot 280
 │   ├── phase2_residual_analysis.ipynb
 │   └── phase3_rl_analysis.ipynb
 └── docs/
+    ├── last_prompt.md
     ├── phase1_baseline.md
     ├── phase2_supervised.md
     ├── phase3_sac.md
     ├── sim_to_real.md
     └── safety.md
 ```
+
 
 ---
 
@@ -1113,6 +1115,9 @@ Every change set that alters behavior, configs, training, or verification **must
 | [README.md](README.md) | How to run the current phase |
 | [STATUS.md](STATUS.md) | Operational status / blockers / next steps |
 | [docs/phaseN_*.md](docs/) | Phase reports when metrics change |
+| [docs/last_prompt.md](docs/last_prompt.md) | Append-only user-prompt progression log (`## BEGIN: <timestamp>`) |
+
+Agent enforcement of this checklist (including `last_prompt.md` prepend / never-delete retention and timestamped `## BEGIN` headers) lives in [`.cursorrules`](.cursorrules) § Documentation Quality.
 
 Do **not** claim hardware accuracy beyond measured results. Simulation success thresholds (e.g. 1 mm position error) are **sim metrics** unless hardware tests confirm them.
 

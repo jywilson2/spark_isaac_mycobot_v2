@@ -36,8 +36,15 @@ Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
 ## Documentation Quality
 
 * Prefer tutorial-quality comments and docstrings: explain *why*, link to `spec.md` / `README.md` / `STATUS.md`, and state units (radians, meters, seconds) explicitly.
-* When changing behavior, update `spec.md`, `README.md`, and `STATUS.md` in the same change set.
+* When changing behavior, configs, training, or verification, update in the same change set:
+  * `spec.md` — authoritative requirements
+  * `README.md` — how to run the current phase
+  * `STATUS.md` — operational status / blockers / next steps
+  * `docs/phaseN_*.md` — phase reports when metrics change
+  * `docs/last_prompt.md` — prepend the latest user prompt (progression log)
+* `docs/last_prompt.md` retention: never delete prior entries; prepend the new prompt at the top using `## BEGIN: YYYY-MM-DD HH:MM ±HH:MM` (local time with numeric offset); move the previous block under `# Old prompts:` preserving all `## BEGIN` / `## END` blocks.
 * Store experiment metrics as CSV/JSON; write human reports under `docs/`.
+* Full documentation policy: `spec.md` § Documentation Maintenance.
 
 ## Test-After-Change Mandate (TDD)
 
@@ -45,6 +52,11 @@ Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
 * Python: `pytest`. C++ (if added): `ament_cmake_gtest`.
 * During early scaffolding, `NotImplementedError` stubs with clear docstrings are allowed when matching [spec.md](spec.md) Step 1. Do not leave silent `# TODO` with no contract.
 * Never execute hardware motion from tests unless `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
+
+## Enumerated List of Changes
+
+* Always create a list summarizing all changes made.
+* Highlight those changes where you would recommend further review.
 
 ## Honest Claims
 

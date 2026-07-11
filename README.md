@@ -9,8 +9,9 @@ Deterministic validation provides safety.
 ```
 
 **Authoritative requirements:** [spec.md](spec.md)  
-**Current status:** [STATUS.md](STATUS.md)  
+**Current status:** [STATUS.md](STATUS.md) — **Phase 1 complete** (FK + DLS IK + validation; [baseline report](docs/phase1_baseline.md))  
 **Agent policy:** [.cursorrules](.cursorrules)  
+**Prompt progression log:** [docs/last_prompt.md](docs/last_prompt.md)  
 **References:** [REFERENCES.md](REFERENCES.md)  
 **License:** [LICENSE](LICENSE) (Apache-2.0)
 

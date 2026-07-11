@@ -172,8 +172,7 @@ class UrdfKinematicModel:
     chain: tuple[UrdfJoint, ...]
     revolute_names: tuple[str, ...]
 
-    def forward(self, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Return ``(position_m, quaternion_wxyz)`` for joint vector ``q`` (rad)."""
+    def _validate_q(self, q: np.ndarray) -> np.ndarray:
         q = np.asarray(q, dtype=float).reshape(-1)
         if q.shape != (len(self.revolute_names),):
             raise ValueError(
@@ -181,12 +180,26 @@ class UrdfKinematicModel:
             )
         if not np.all(np.isfinite(q)):
             raise ValueError("q must contain only finite values")
+        return q
 
+    def forward_transforms(
+        self, q: np.ndarray
+    ) -> tuple[np.ndarray, list[tuple[np.ndarray, np.ndarray]]]:
+        """Return EE ``T_ee`` (4×4) and per-revolute ``(p_joint, z_axis)`` in base.
+
+        ``p_joint`` / ``z_axis`` are taken at the joint axis after applying the
+        joint origin, before the revolute motion — the geometric Jacobian frame.
+        """
+        q = self._validate_q(q)
         q_map = dict(zip(self.revolute_names, q, strict=True))
         T = np.eye(4, dtype=float)
+        revolute_frames: list[tuple[np.ndarray, np.ndarray]] = []
         for joint in self.chain:
             T = T @ joint.origin
             if joint.joint_type == "revolute":
+                p = T[:3, 3].copy()
+                z = (T[:3, :3] @ joint.axis).copy()
+                revolute_frames.append((p, z))
                 angle = q_map[joint.name]
                 R = _axis_angle_matrix(joint.axis, angle)
                 T_motion = np.eye(4, dtype=float)
@@ -196,7 +209,26 @@ class UrdfKinematicModel:
                 continue
             else:
                 raise NotImplementedError(f"unsupported joint type: {joint.joint_type}")
+        return T, revolute_frames
+
+    def forward(self, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(position_m, quaternion_wxyz)`` for joint vector ``q`` (rad)."""
+        T, _ = self.forward_transforms(q)
         return T[:3, 3].copy(), rotation_matrix_to_quaternion_wxyz(T[:3, :3])
+
+    def geometric_jacobian(self, q: np.ndarray) -> np.ndarray:
+        """Geometric Jacobian ``J`` (6×n) mapping ``dq`` → ``[v; ω]`` in base frame.
+
+        Units: linear part meters/radian, angular part dimensionless (rad/rad).
+        """
+        T_ee, frames = self.forward_transforms(q)
+        p_ee = T_ee[:3, 3]
+        n = len(self.revolute_names)
+        J = np.zeros((6, n), dtype=float)
+        for i, (p_i, z_i) in enumerate(frames):
+            J[:3, i] = np.cross(z_i, p_ee - p_i)
+            J[3:, i] = z_i
+        return J
 
 
 def _parse_joints(root: ET.Element) -> dict[str, UrdfJoint]:

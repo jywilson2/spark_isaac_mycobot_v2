@@ -25,6 +25,7 @@ assets/checkpoints/*
 !assets/checkpoints/.gitkeep
 assets/logs/*
 !assets/logs/.gitkeep
+!assets/logs/phase1_baseline_metrics.json
 assets/urdf/*
 !assets/urdf/README.md
 !assets/urdf/mycobot_280_m5_kinematics.urdf

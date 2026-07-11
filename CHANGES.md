@@ -106,7 +106,6 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 - `phase5_red_block/`
 - `spark_verify_pkg` mock Phase 1–4 ecosystem
 - Competing staged/two-phase PPO recipes
-- `last_prompt.md` retention policy
 - Verified PPO checkpoint (`verified_demo_25mm`) — not applicable to residual IK primary path
 
 ## Bootstrap helpers (kept for review; delete when no longer needed)
@@ -127,5 +126,26 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 | Ownership / `chmod +x` | Scripts executable; tree owned for uid 1000 |
 | URDF FK | `kinematics/urdf_model.py` + wired `fk.py`; `assets/urdf/mycobot_280_m5_kinematics.urdf`; `download_mycobot_ros2.sh` symlinks sibling |
 | CI | `.github/workflows/pytest.yml` |
+| Doc maintenance | Slim `spec.md` § Documentation Maintenance; expand `.cursorrules` checklist; restore `docs/last_prompt.md` prepend/never-delete progression log |
 | `LICENSE` | Apache-2.0 |
 | Docs | `STATUS.md` / `README.md` updated for FK + Cursor workspace |
+
+---
+
+## Phase 1 completion (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `kinematics/urdf_model.py` | **Updated** | Geometric Jacobian + `forward_transforms` |
+| `kinematics/numerical_ik.py` | **Implemented** | Damped least-squares IK (seed, damping, limits, reasons) |
+| `kinematics/validation.py` | **Implemented** | Limits, residual bounds, FK error, workspace |
+| `kinematics/baseline_eval.py` | **Created** | ≥1000-pose metrics + markdown/JSON writers |
+| `utils/transforms.py` | **Expanded** | Pose/orientation error helpers for DLS |
+| `tests/test_ik_validation.py` | **Expanded** | Validation + DLS + Jacobian FD + small baseline |
+| `scripts/run_phase1_baseline.sh` | **Updated** | Runs tests then baseline eval |
+| `docs/phase1_baseline.md` | **Filled** | 1000 poses, 99.9% success (sim metrics) |
+| `assets/logs/phase1_baseline_metrics.json` | **Created** | Machine-readable metrics (gitallowed) |
+| `.gitignore` | **Updated** | Keep `phase1_baseline_metrics.json` |
+| `STATUS.md` / `docs/last_prompt.md` | **Updated** | Phase 1 complete; next Phase 2 |
+
+**Review recommended:** residual/workspace validation edge cases; host vs container Isaac guidance in `.cursorrules` / `spec.md` if Isaac Sim is now runnable from this environment.

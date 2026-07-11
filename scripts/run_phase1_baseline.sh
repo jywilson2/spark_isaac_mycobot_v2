@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 baseline: run FK/IK unit tests and remind about metrics report.
+# Phase 1 baseline: unit tests + ≥1000-pose DLS IK metrics report.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
@@ -11,7 +11,16 @@ fi
 
 export SPARK_REPO_ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+
+N_POSES="${PHASE1_N_POSES:-1000}"
+SEED="${PHASE1_SEED:-0}"
+
 pytest tests/test_fk.py tests/test_ik_validation.py tests/test_residual_bounds.py -q
+python -m residual_adaptive_ik.kinematics.baseline_eval \
+  --n-poses "${N_POSES}" \
+  --seed "${SEED}" \
+  --json-out "${ROOT}/assets/logs/phase1_baseline_metrics.json" \
+  --md-out "${ROOT}/docs/phase1_baseline.md"
+
 echo
-echo "FK is implemented (URDF). Numerical IK + validation still need implementation."
-echo "When complete, write metrics to docs/phase1_baseline.md (≥1000 reachable poses)."
+echo "Phase 1 baseline complete. See docs/phase1_baseline.md"
