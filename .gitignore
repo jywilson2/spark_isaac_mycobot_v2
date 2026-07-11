@@ -33,8 +33,9 @@ assets/usd/*
 assets/meshes/*
 !assets/meshes/README.md
 
-# Vendor clone (optional submodule)
+# Vendor clone or symlink (optional; CI uses assets/urdf kinematics strip)
 third_party/mycobot_ros2/
+third_party/mycobot_ros2
 
 # Editor / OS
 .DS_Store

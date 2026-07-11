@@ -113,5 +113,19 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 
 | Path | Notes |
 |------|-------|
-| `_bootstrap_dirs.py` | One-shot dir creator used during scaffold |
-| `_generate_skeleton.py` | One-shot file generator used during scaffold |
+| `_bootstrap_dirs.py` | Removed after scaffold (no longer in tree) |
+| `_generate_skeleton.py` | Removed after scaffold (no longer in tree) |
+
+---
+
+## Follow-up additions (2026-07-11)
+
+| Item | Action |
+|------|--------|
+| `git init` + `origin` | Local repo on `main`; remote `git@github.com:jywilson2/spark_isaac_mycobot_v2.git` (push after creating GitHub repo) |
+| `spark_isaac_mycobot_v2.code-workspace` | Multi-root: v2 active + v1 reference |
+| Ownership / `chmod +x` | Scripts executable; tree owned for uid 1000 |
+| URDF FK | `kinematics/urdf_model.py` + wired `fk.py`; `assets/urdf/mycobot_280_m5_kinematics.urdf`; `download_mycobot_ros2.sh` symlinks sibling |
+| CI | `.github/workflows/pytest.yml` |
+| `LICENSE` | Apache-2.0 |
+| Docs | `STATUS.md` / `README.md` updated for FK + Cursor workspace |

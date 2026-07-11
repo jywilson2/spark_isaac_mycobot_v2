@@ -9,9 +9,9 @@ if [[ -f .venv/bin/activate ]]; then
   source .venv/bin/activate
 fi
 
+export SPARK_REPO_ROOT="${ROOT}"
 export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 pytest tests/test_fk.py tests/test_ik_validation.py tests/test_residual_bounds.py -q
 echo
-echo "Phase 1 implementation still incomplete (stubs raise NotImplementedError)."
-echo "When FK/IK/validation are implemented, write metrics to docs/phase1_baseline.md"
-echo "and evaluate ≥1000 reachable poses per spec.md acceptance criteria."
+echo "FK is implemented (URDF). Numerical IK + validation still need implementation."
+echo "When complete, write metrics to docs/phase1_baseline.md (≥1000 reachable poses)."
