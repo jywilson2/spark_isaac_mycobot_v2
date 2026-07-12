@@ -98,7 +98,7 @@ The learned system must not replace the IK solver. It must wrap around it.
 
 | Runtime | Runs Isaac Sim / Isaac Lab? | How agents and scripts execute |
 |---------|----------------------------|--------------------------------|
-| **DGX Spark host** (native shell where Isaac Sim is installed) | **Yes** | Phase 1 viz: `./scripts/host/run_phase1_isaac.sh`; GUI: `./scripts/host/launch_isaac_sim.sh`; Phase 4: Isaac Lab scripts |
+| **DGX Spark host** (native shell where Isaac Sim is installed) | **Yes** | Phase 1 viz: `./scripts/host/run_isaac_viz.sh`; GUI: `./scripts/host/launch_isaac_sim.sh`; Phase 4: Isaac Lab scripts |
 | **Isaac ROS container** (Cursor / `isaac-ros activate`) | Usually **No** GPU Kit | NumPy Phase 1–3 OK; for Sim/Lab use a host shell or `scripts/host/spark_host_exec.sh` |
 
 Prefer **host-direct** Isaac Sim. Do **not** assume Phase 3 failed because the container lacks `python.sh`. Override host repo path with `SPARK_HOST_REPO_ROOT` or host user with `SPARK_HOST_USER` (default `admin`) when needed. Set `SPARK_ALLOW_CONTAINER_ISAAC=1` only if Kit is mounted into the container.
@@ -248,7 +248,7 @@ spark_isaac_mycobot_v2/          # residual adaptive IK for MyCobot 280
 │   ├── test_residual_bounds.py
 │   ├── test_dataset_schema.py
 │   ├── test_ros2_message_contract.py
-│   └── test_phase1_isaac_smoke.py   # gated: SPARK_RUN_ISAAC_SMOKE=1 (host Kit)
+│   └── test_isaac_viz_smoke.py   # gated: SPARK_RUN_ISAAC_SMOKE=1 (host Kit)
 ├── notebooks/
 │   ├── phase1_baseline_analysis.ipynb
 │   ├── phase2_residual_analysis.ipynb
@@ -494,20 +494,20 @@ Required low-level smoke entry points (also invoked by `run_verification.sh`):
 
 ```bash
 # CI piece: headless
-./scripts/host/smoke_phase1_isaac.sh
+./scripts/host/smoke_isaac_viz.sh
 # Spark piece: GUI (after headless)
-./scripts/host/smoke_phase1_isaac.sh --gui
+./scripts/host/smoke_isaac_viz.sh --gui
 # From container:
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
 ```
 
 Notes on “visualization” vs GUI:
 
 - `--visualize N` (and the smoke’s pose animation) means **animate N IK trials in the Kit stage**; it does **not** by itself open a window.
-- A visible GUI requires `smoke_phase1_isaac.sh --gui` and a usable `DISPLAY` on the host desktop session. CI and agent smokes default to `--headless` so they can run without a monitor.
+- A visible GUI requires `smoke_isaac_viz.sh --gui` and a usable `DISPLAY` on the host desktop session. CI and agent smokes default to `--headless` so they can run without a monitor.
 - Policy: **remote CI = headless**; **Spark host with Isaac Sim = headless then required GUI**.
-- **Agent / container GUI without manual shell:** `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui` enters the host mount via `nsenter`, then **`runuser -u $SPARK_HOST_USER`** (not root) so X11 cookies match the desktop session. Smoke passes `--auto-exit` so Kit closes after animation (set `PHASE1_SMOKE_KEEP_GUI_OPEN=1` to leave the window open). v1 only exported `HOME`/`USER` while remaining root — that often failed with “Authorization required…”.
+- **Agent / container GUI without manual shell:** `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui` enters the host mount via `nsenter`, then **`runuser -u $SPARK_HOST_USER`** (not root) so X11 cookies match the desktop session. Smoke passes `--auto-exit` so Kit closes after animation (set `ISAAC_VIZ_SMOKE_KEEP_GUI_OPEN=1` to leave the window open). v1 only exported `HOME`/`USER` while remaining root — that often failed with “Authorization required…”.
 
 Vendor URDF + meshes must resolve on the host (relative `third_party/mycobot_ros2` symlink). NumPy-only `pytest` in the container remains required but is **not** a substitute for host Isaac Sim smoke when Kit is available.
 
@@ -986,7 +986,7 @@ z_bins: 5
 max_joint_speed_deg_s: 160.0  # vendor Joint Maximum Speed
 ```
 
-Total stratified cells = 12 × 4 × 5 = **240** separate workspace bins (denser than the original v1 8×3×4 demo grid). Phase 1 baseline default sampling fills these bins evenly with reachable FK poses. Isaac GUI motion interpolates joint targets at ≤ `max_joint_speed_deg_s`. The IK target sphere stays **red** until EE tip contact (≤ sphere radius), then turns **green** (`isaac_sim/target_marker.py`).
+Total stratified cells = 12 × 4 × 5 = **240** separate workspace bins (denser than the original v1 8×3×4 demo grid). Phase 1 baseline default sampling fills these bins evenly with reachable FK poses. Isaac GUI motion interpolates joint targets at ≤ `max_joint_speed_deg_s`. The IK target sphere stays **red** until EE tip contact (≤ sphere radius), then turns **green**; on path-planning failure it turns **yellow** and the arm does not move (`isaac_sim/target_marker.py`, `isaac_sim/viz_plan_policy.py`).
 
 ## `configs/robot/joint_limits.yaml`
 
@@ -1138,7 +1138,7 @@ Required Phase 1 order:
 6. tests,
 7. baseline script,
 8. baseline report,
-9. host Isaac Sim verification (tiered): CI / remote PR = headless smoke only (`scripts/host/smoke_phase1_isaac.sh` / gated `tests/test_phase1_isaac_smoke.py`); on a DGX Spark with Isaac Sim, after headless succeeds, required GUI smoke (`./scripts/host/smoke_phase1_isaac.sh --gui` from a native desktop session), with fixes for any host-path / Kit / windowing issues found.
+9. host Isaac Sim verification (tiered): CI / remote PR = headless smoke only (`scripts/host/smoke_isaac_viz.sh` / gated `tests/test_isaac_viz_smoke.py`); on a DGX Spark with Isaac Sim, after headless succeeds, required GUI smoke (`./scripts/host/smoke_isaac_viz.sh --gui` from a native desktop session), with fixes for any host-path / Kit / windowing issues found.
 
 ## Step 3 — Implement Phase 2 (geometry + planning)
 
@@ -1150,8 +1150,9 @@ Required Phase 2 order:
 4. wire `obstacles=` into `validate_solution`,
 5. CI script `run_phase2_geometry.sh` + tests,
 6. host viz `PATH_OK` / `PATH_COLLISION` logging,
-7. `docs/phase2_geometry.md`,
-8. (optional later) cuRobo / PhysX / MoveIt backends.
+7. `docs/phase2_geometry.md` + `docs/phase2_status_and_resume.md` (what works / WIP / resume after hiatus),
+8. host cuRobo MotionGen + volumetric marker + fail-closed gate + via planning recovery (Spark),
+9. (optional later) MoveIt / PhysX / partial-via execution polish.
 
 ## Step 4 — Implement Phase 3 (supervised residual)
 
@@ -1229,9 +1230,9 @@ pytest tests
 bash scripts/run_phase1_baseline.sh
 
 # Phase 1 host Isaac Sim smoke (independent host shell — not the ROS container)
-./scripts/host/smoke_phase1_isaac.sh
-# From container: ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
-# Gated: SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_phase1_isaac_smoke.py -q
+./scripts/host/smoke_isaac_viz.sh
+# From container: ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
+# Gated: SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_isaac_viz_smoke.py -q
 
 # Run Phase 2
 bash scripts/run_phase2_supervised.sh
@@ -1262,7 +1263,7 @@ ros2 launch residual_adaptive_ik_ros residual_ik.launch.py mode:=validation_only
 - Never allow an RL policy to bypass validation.
 - After Phase 1 kinematics / Isaac host-script changes:
   - Always run CI-equivalent checks (NumPy `pytest`; headless Isaac smoke when Kit is available).
-  - On a **DGX Spark host with Isaac Sim**, after headless succeeds, also run **GUI** smoke (`./scripts/host/smoke_phase1_isaac.sh --gui` from a native desktop session) and fix issues found. Remote GitHub PR CI must remain headless-only.
+  - On a **DGX Spark host with Isaac Sim**, after headless succeeds, also run **GUI** smoke (`./scripts/host/smoke_isaac_viz.sh --gui` from a native desktop session) and fix issues found. Remote GitHub PR CI must remain headless-only.
 - Do **not** suppress Isaac Sim / importer / Python warnings; fix the underlying cause (see Phase 1 Acceptance Criteria item 8).
 - Store all experiment metrics in machine-readable CSV or JSON.
 - Write reports in Markdown under `docs/`.

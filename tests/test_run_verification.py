@@ -13,8 +13,12 @@ def test_run_verification_script_exists_and_documents_modes():
     text = SCRIPT.read_text(encoding="utf-8")
     assert "ci)" in text
     assert "spark)" in text
-    assert "smoke_phase1_isaac.sh --gui" in text
+    assert "smoke_isaac_viz.sh --gui" in text
     assert "Acceptance #7" in text
+    assert "spark_preflight" in text
+    assert "ISAAC_VIZ_SMOKE_HEADLESS_VISUALIZE" in text or "ISAAC_VIZ_SMOKE_VISUALIZE" in text
+    assert "ISAAC_VIZ_SMOKE_GUI_VISUALIZE" in text
+    assert "install_curobo.sh" in text
     assert (REPO / "scripts" / "run_phase2_geometry.sh").is_file()
     assert (REPO / "scripts" / "run_phase3_supervised.sh").is_file()
     assert (REPO / "scripts" / "run_phase4_sac.sh").is_file()

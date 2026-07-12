@@ -16,6 +16,12 @@ from residual_adaptive_ik.planning.joint_path import (
     interpolate_joint_path,
     plan_joint_lerp_checked,
 )
+from residual_adaptive_ik.planning.recovery import (
+    plan_collision_free_with_recovery,
+    plan_via_standoff,
+    recovery_audit_plan_fail,
+    tip_standoff_on_approach,
+)
 
 __all__ = [
     "CuRoboMotionPlanner",
@@ -25,5 +31,9 @@ __all__ = [
     "curobo_available",
     "interpolate_joint_path",
     "plan_collision_free",
+    "plan_collision_free_with_recovery",
     "plan_joint_lerp_checked",
+    "plan_via_standoff",
+    "recovery_audit_plan_fail",
+    "tip_standoff_on_approach",
 ]

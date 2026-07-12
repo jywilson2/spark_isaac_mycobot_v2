@@ -2,7 +2,7 @@
 # Phase 2 — geometry + collision-checked joint planning (CI-friendly).
 #
 # Runs unit tests and a short NumPy path-check demo. No Isaac Kit required.
-# Host Isaac GUI still uses scripts/host/run_phase1_isaac.sh (path checks log
+# Host Isaac GUI still uses scripts/host/run_isaac_viz.sh (path checks log
 # inside Kit when enabled). See spec.md Phase 2.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

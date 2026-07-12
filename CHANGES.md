@@ -392,3 +392,137 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 | `tests/test_run_verification.py` | **Created** | Script + doc contract |
 
 **Both places:** `spec.md` = authoritative policy; `.cursorrules` = agent must invoke which mode when.
+
+---
+
+## Spark verification hardening (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `scripts/run_verification.sh` | **Updated** | Preflight (orphan Kit + cuRobo); Spark headless uses `PHASE1_SMOKE_VISUALIZE=0` |
+| `scripts/host/spark_host_exec.sh` | **Updated** | Forward `PHASE1_SMOKE_*` env to host |
+| `scripts/host/probe_curobo.sh` | **Updated** | Exit 1 when cuRobo/CUDA missing |
+| `curobo_planner.py` | **Updated** | Tighter spheres / wider self-collision ignore |
+| `README.md` / `STATUS.md` / `tests/test_run_verification.py` | **Updated** | Document Spark steps; contract tests |
+
+---
+
+## Pytest basetemp UID scope (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `tests/conftest.py` | **Created** | `--basetemp` under `/tmp/pytest-uid-<uid>/` so root/container and host user do not share `/tmp/pytest-of-<name>` |
+| `README.md` | **Updated** | Host-shell ownership error + cleanup |
+
+---
+
+## Mesh-fitted spheres + volumetric IK target (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `planning/sphere_fit_mycobot.py` | **Created** | cuRobo `fit_spheres_to_mesh`; mm→m for `G_base.dae` |
+| `scripts/host/fit_mycobot_collision_spheres.sh` | **Created** | Host regenerate fitted YAML |
+| `configs/planning/curobo/mycobot_280_collision_spheres.yaml` | **Created** | Committed mesh-fit spheres |
+| `curobo_planner.py` / viz | **Updated** | Target as volumetric obstacle; tip omit for contact |
+| `docs/phase2_geometry.md` / README / tests | **Updated** | Contracts + honesty notes |
+
+---
+
+## Headless marker↔EE side-contact diagnostic (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `planning/marker_contact_diag.py` | **Created** | Tip vs side classification of robot-sphere ∩ marker |
+| `scripts/host/diagnose_marker_ee_contact.sh` | **Created** | Headless multi-trial scan; gate on executed-path side hits |
+| `tests/test_marker_contact_diag.py` | **Created** | Unit tests (no CUDA) |
+| `curobo_planner.py` | **Updated** | `create_obb_world` for marker; tip surface approach |
+| `scripts/host/verify_target_obstacle.sh` | **Created** | SDF near/far assert for marker OBB |
+| README / STATUS / phase2 docs | **Updated** | How to run diagnostic without GUI |
+
+---
+
+## Fail-closed planning after cuRobo reject (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `curobo_planner.py` | **Updated** | No NumPy exec fallback after cuRobo fail (default) |
+| `configs/planning/collision.yaml` | **Updated** | `fallback_numpy_after_curobo_fail: false` |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | `GATED_NO_MOTION` + freeze pose; remove ungated IK lerp |
+| `tests/test_phase2_curobo.py` | **Updated** | Fail-closed unit test |
+| STATUS / phase2 docs | **Updated** | Document the GUI collision bug + fix |
+
+---
+
+## Yellow marker + fail-closed regression tests (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `isaac_sim/viz_plan_policy.py` | **Created** | `plan_result_is_executable`, marker state policy |
+| `tests/test_viz_plan_fail_closed.py` | **Created** | Catches `ok_fallback\|plan_failed` execution bug |
+| `isaac_sim/target_marker.py` | **Updated** | Yellow RGB for plan fail |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Yellow on fail; `_viz_log` → Kit Console via carb |
+| README / STATUS / spec | **Updated** | red/green/yellow + Console note |
+
+---
+
+## Home reset + planning-failure strategy notes (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `kinematics/robot_home.py` | **Created** | Load `home_joint_positions_rad` |
+| `configs/robot/mycobot_280.yaml` | **Updated** | Home pose (zeros / URDF reference) |
+| `configs/planning/collision.yaml` | **Updated** | `reset_to_home_before_each_trial: true` |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Move to home before each trial |
+| `diagnose_marker_ee_contact.sh` | **Updated** | Plan from home each trial |
+| `tests/test_robot_home.py` | **Created** | Home + viz contract |
+| `docs/phase2_geometry.md` / REFERENCES | **Updated** | Recovery strategy; cuMotion / MoveIt / OMPL |
+
+---
+
+## Standoff via recovery + home reset opt-in (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `planning/recovery.py` | **Created** | Direct then via-standoff until timeout |
+| `configs/planning/collision.yaml` | **Updated** | Home reset **default false**; recovery knobs |
+| `run_phase1_ik_viz.py` / diagnose | **Updated** | `plan_collision_free_with_recovery` |
+| `tests/test_plan_recovery.py` | **Created** | Via concat + timeout + YAML defaults |
+| `docs/phase2_geometry.md` | **Updated** | Implemented table; MoveIt vs cuRobo note |
+
+---
+
+## Rename Isaac viz entry points (2026-07-11)
+
+Phase-neutral names for the shared Phase 1 metrics + Phase 2 planning Kit path:
+
+| Old | New |
+|-----|-----|
+| `isaac_sim/run_phase1_ik_viz.py` | `isaac_sim/run_ik_viz.py` |
+| `scripts/host/run_phase1_isaac.sh` | `scripts/host/run_isaac_viz.sh` |
+| `scripts/host/smoke_phase1_isaac.sh` | `scripts/host/smoke_isaac_viz.sh` |
+| `tests/test_phase1_isaac_smoke.py` | `tests/test_isaac_viz_smoke.py` |
+| `PHASE1_SMOKE_*` env | `ISAAC_VIZ_SMOKE_*` (legacy aliases kept) |
+
+Old script paths remain as thin deprecated forwarders.
+
+---
+
+## Plan recovery audit for yellow/no-via (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `planning/recovery.py` | **Updated** | Always attempt first via after direct fail; audit helpers |
+| `configs/planning/collision.yaml` | **Updated** | timeout 15 s; cap direct attempts |
+| `tests/test_recovery_audit.py` | **Created** | Detects PLAN_FAIL without `via1_` |
+| `scripts/host/diagnose_plan_recovery.sh` | **Created** | Headless host audit |
+| `run_ik_viz.py` | **Updated** | Logs `via_attempts` / RECOVERY on PLAN_FAIL |
+| `run_verification.sh` | **Updated** | Spark cuRobo step runs recovery diagnose |
+
+---
+
+## Phase 2 status + resume briefing (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `docs/phase2_status_and_resume.md` | **Created** | What works / WIP / resume-after-hiatus |
+| `STATUS.md` / `README.md` / `spec.md` | **Updated** | Point at briefing; Phase 2 polish called out |

@@ -23,13 +23,13 @@ The target sphere is **visual-only** (no PhysX). Phase 1 IK does **not** collisi
 
 ```bash
 ./scripts/download_mycobot_ros2.sh
-./scripts/host/run_phase1_isaac.sh
+./scripts/host/run_isaac_viz.sh
 ```
 
 **Quick test (recommended first run):**
 
 ```bash
-./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+./scripts/host/run_isaac_viz.sh --skip-tests -- \
   --num-poses 240 --visualize 48 --hold-s 0.4
 ```
 
@@ -38,20 +38,20 @@ The target sphere is **visual-only** (no PhysX). Phase 1 IK does **not** collisi
 **TDD / CI host smoke** (headless Kit, short metrics+viz; from container delegates to host):
 
 ```bash
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
-# or on host: ./scripts/host/smoke_phase1_isaac.sh
-# gated pytest: SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_phase1_isaac_smoke.py -q
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
+# or on host: ./scripts/host/smoke_isaac_viz.sh
+# gated pytest: SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_isaac_viz_smoke.py -q
 ```
 
 `--visualize N` animates N IK trials **inside Kit**; it does **not** open a window.  
-`run_phase1_isaac.sh` opens a GUI unless you pass `--headless`.
+`run_isaac_viz.sh` opens a GUI unless you pass `--headless`.
 
 **Verification policy**
 
 | Context | Required |
 |---------|----------|
 | Remote GitHub PR / CI | Headless only (NumPy pytest ± gated Isaac smoke). **No GUI.** |
-| DGX Spark host with Isaac Sim (active development) | After headless succeeds → **required** GUI: `./scripts/host/smoke_phase1_isaac.sh --gui` on a native desktop session (`DISPLAY`), **or** from the agent/container: `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui` (nsenter + **runuser** as `SPARK_HOST_USER`, `--auto-exit`) |
+| DGX Spark host with Isaac Sim (active development) | After headless succeeds → **required** GUI: `./scripts/host/smoke_isaac_viz.sh --gui` on a native desktop session (`DISPLAY`), **or** from the agent/container: `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui` (nsenter + **runuser** as `SPARK_HOST_USER`, `--auto-exit`) |
 
 ### Joint stiffness / damping (URDF import)
 
@@ -60,7 +60,7 @@ Elephant Robotics does **not** publish joint drive stiffness or damping. This re
 **Full ≥1000-pose acceptance with rendering:**
 
 ```bash
-./scripts/host/run_phase1_isaac.sh -- \
+./scripts/host/run_isaac_viz.sh -- \
   --num-poses 1000 --visualize 48 --hold-s 0.75
 ```
 

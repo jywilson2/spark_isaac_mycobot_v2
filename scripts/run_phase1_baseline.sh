@@ -24,7 +24,7 @@ if [[ "${PHASE1_WITH_ISAAC:-0}" == "1" ]]; then
 fi
 
 if [[ "${WITH_ISAAC}" -eq 1 ]]; then
-  exec "${ROOT}/scripts/host/run_phase1_isaac.sh" "${FORWARD[@]}"
+  exec "${ROOT}/scripts/host/run_isaac_viz.sh" "${FORWARD[@]}"
 fi
 
 if [[ -f .venv/bin/activate ]]; then
@@ -48,5 +48,5 @@ python -m residual_adaptive_ik.kinematics.baseline_eval \
 echo
 echo "Phase 1 baseline complete. See docs/phase1_baseline.md"
 echo "For Isaac Sim rendering on the host:"
-echo "  ./scripts/host/run_phase1_isaac.sh"
+echo "  ./scripts/host/run_isaac_viz.sh"
 echo "  ./scripts/host/launch_isaac_sim.sh"

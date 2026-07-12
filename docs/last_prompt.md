@@ -1,5 +1,100 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-11 23:05 -07:00
+Document what works and what is still in development for phase 2. Also document the steps to resume development after a long haitus.
+
+Created a details commit message, commit, rebase, and push.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 23:01 -07:00
+When viewing the test results in the GUI, the yellow targets change position, but the arm remains motionless. No recovery strategy is attempted. Can you add headless tests to detect this condition?
+## END
+
+## BEGIN: 2026-07-11 22:53 -07:00
+Yes, please rename and update as needed.
+## END
+
+## BEGIN: 2026-07-11 22:52 -07:00
+Why does the name of the testing script refere to phase1? Aren't we working on Phase 2?
+## END
+
+## BEGIN: 2026-07-11 22:50 -07:00
+Can you make a CLI option for reset to home?
+## END
+
+## BEGIN: 2026-07-11 22:47 -07:00
+Make the return to a home position a parameterized option that is disabled by default. I would like to test recovery strategies for path planning.
+
+If the plan is failing, keep trying using the recover strategies discussed. Timeout after a certain duration.
+
+Yes, implement standoff via the approach that is provides the most reliable recovery strategy (via waypoints?).
+
+Does Moveit 2 do a better job than cuRobo in this context?
+## END
+
+
+## BEGIN: 2026-07-11 22:37 -07:00
+Can you return the arm to an intial position at the beginning of each test? I am assuming this will produce fewer plan failures.
+
+Can you suggest a strategy for coping with motion planning failures in a more general context. Would it make sense to move the EE to a different position and retry the creation of a new path? If so, where would the arm move in this scenario? Is this an aspect of path planning where the creation of an intermediate waypoint in proximity to the target would allow path planning to succeed?
+
+Is there reseach or existing ROS2 or Nvidia libraries that have support for such scenarios? Is this another aspect of Residual Learning?
+## END
+
+
+## BEGIN: 2026-07-11 22:25 -07:00
+Can you create a unit test that could find bugs of this type in the future?
+
+Also, can you change the color of the ball to yellow when path planning fails?
+
+Is it possible to stream the debug output appearing in the host console to an IsaacSim window?
+## END
+
+
+## BEGIN: 2026-07-11 22:21 -07:00
+In this case the arm consistently moves the EE and colides with the marker, even when a planning failure is indicated.
+## END
+
+
+## BEGIN: 2026-07-11 22:01 -07:00
+I still see the target sphere making contact with the side of the EE.
+
+Can you produce additional diagnotic code to verify this in headless mode? Watching the outcome in GUI mode is time consuming.
+## END
+
+
+## BEGIN: 2026-07-11 21:51 -07:00
+The marker may still pass through the side of the EE when approaching the end of the EE.
+
+Can you verify that the volume of the target (aka "marker) is indeed being procesed by cuRobo?
+## END
+
+
+## BEGIN: 2026-07-11 21:36 -07:00
+I was detecting self-collision when watching the EE approach the target. The target passed through sections of the EE as it made it's final approach.
+
+To be more realistic, the 3D target should not be processed as a point, but as a sphere with volume, and the EE should not collide with the sphere even if the center of the sphere clears the surface of EE.
+
+Replace the spheres with the cuRobot sphere fitting from the mesh, as recommended in item 3.
+## END
+
+## BEGIN: 2026-07-11 21:24 -07:00
+I am recieving this error when I run from a host shell:
+
+ERROR tests/test_urdf_utils.py::test_write_isaac_ready_urdf_when_vendor_present - OSError: The temporary directory /tmp/pytest-of-jywilson is not owned by th...
+57 passed, 2 skipped, 3 warnings, 1 error in 1.99s
+## END
+
+## BEGIN: 2026-07-11 21:09 -07:00
+This command has an issue. Can you please run it for verification and make any necessary fixes?
+## END
+
+## BEGIN: 2026-07-11 21:07 -07:00
+What is the command for spark testing?
+## END
+
 ## BEGIN: 2026-07-11 18:41 -07:00
 I noticed when IsaacSim visualization was running that the arm collided with the ground. Would the trajectory planning prevent this as well?
 
@@ -7,8 +102,6 @@ Complete the implementation of Phase 2 to provide all required features. Use cuR
 
 Commit, rebase, and push when successful.
 ## END
-
-# Old prompts:
 
 ## BEGIN: 2026-07-11 18:38 -07:00
 Would the use of cuRobo still work with ROS 2 when commanding the physical arm?

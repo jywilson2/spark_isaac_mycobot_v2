@@ -9,7 +9,7 @@ Deterministic validation provides safety.
 ```
 
 **Authoritative requirements:** [spec.md](spec.md)  
-**Current status:** [STATUS.md](STATUS.md) — **Phase 1 complete**; next is **Phase 2 geometry + planning** (four-phase plan). Baseline: [docs/phase1_baseline.md](docs/phase1_baseline.md)  
+**Current status:** [STATUS.md](STATUS.md) — **Phase 1 complete**; **Phase 2 foundation on `wip_phase2`** (polish in progress). Briefing: [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md). Baseline: [docs/phase1_baseline.md](docs/phase1_baseline.md)
 **Agent policy:** [.cursorrules](.cursorrules)  
 **Prompt progression log:** [docs/last_prompt.md](docs/last_prompt.md)  
 **References:** [REFERENCES.md](REFERENCES.md)  
@@ -26,7 +26,7 @@ Deterministic validation provides safety.
 | **pytest** | Unit/contract tests under `tests/` (FK, IK, validation, workspace coverage, servo-speed caps, URDF prep). |
 | **Python stdlib** (`pathlib`, `argparse`, `xml.etree`, …) | URDF parse (kinematics), CLI baseline eval, logging paths. |
 | **Isaac Sim / Omniverse Kit** (host only) | `SimulationApp`, URDF importer, USD stage, Articulation API for GUI/headless viz; motion capped at vendor **160 °/s**. |
-| **pxr (USD)** | Sphere target marker, ground, lights, material binding in `isaac_sim/run_phase1_ik_viz.py`. |
+| **pxr (USD)** | Sphere target marker, ground, lights, material binding in `isaac_sim/run_ik_viz.py`. |
 | **Elephant Robotics `mycobot_ros2` URDF/meshes** | Vendor kinematics + visuals via `third_party/mycobot_ros2` (or `assets/urdf/` kinematics-only for NumPy CI). |
 
 Not used for Phase 1 deployed IK: PyTorch, Isaac Lab RL, `rclpy` (ROS node is later). Optional `pin` is listed in `requirements.txt` comments only.
@@ -64,7 +64,7 @@ The learned model never replaces the IK solver. Residuals default to **±0.5°**
 
 | Phase | Goal | Entry script |
 |-------|------|----------------|
-| **1** | Classical FK / numerical IK / validation baseline (+ optional host Isaac viz) | `./scripts/run_phase1_baseline.sh` or `./scripts/host/run_phase1_isaac.sh` |
+| **1** | Classical FK / numerical IK / validation baseline (+ optional host Isaac viz) | `./scripts/run_phase1_baseline.sh` or `./scripts/host/run_isaac_viz.sh` |
 | **2** | Geometry + collision-aware joint planning | `./scripts/run_phase2_geometry.sh` |
 | **3** | Supervised residual MLP under simulated mismatch | `./scripts/run_phase3_supervised.sh` |
 | **4** | SAC residual RL in Isaac Lab (host GPU) | `./scripts/run_phase4_sac.sh` |
@@ -90,7 +90,7 @@ One command evaluates IK metrics and animates a subset in Isaac Sim:
 # On the DGX Spark host (native shell — not the Isaac ROS container)
 cd /home/admin/workspaces/isaac_ros-dev/src/spark_isaac_mycobot_v2
 export ISAACSIM_PATH="${ISAACSIM_PATH:-$HOME/isaacsim}"
-./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+./scripts/host/run_isaac_viz.sh --skip-tests -- \
   --num-poses 240 --visualize 48 --hold-s 0.4
 ```
 
@@ -125,7 +125,8 @@ Use **`./scripts/run_verification.sh`** so CI and host GUI paths stay distinct:
 # Optional headless Isaac on a runner that has Kit:
 ./scripts/run_verification.sh ci --with-isaac
 
-# DGX Spark with Isaac Sim (pytest → headless smoke → required GUI)
+# DGX Spark with Isaac Sim (pytest → headless metrics → cuRobo → required GUI)
+# One-time: ./scripts/host/spark_host_exec.sh ./scripts/host/install_curobo.sh
 ./scripts/run_verification.sh spark
 ```
 
@@ -143,7 +144,7 @@ Policy lives in [spec.md](spec.md) Acceptance #7; agent enforcement in [.cursorr
 
 ### Expected Isaac Sim launch warnings (safe to ignore)
 
-Phase 1 host runs (`run_phase1_isaac.sh` / `smoke_phase1_isaac.sh`) print many Kit lines at startup. **Do not silence them in code** ([spec.md](spec.md) Acceptance #8). Warnings **caused by this repo** must be fixed at the source. The following are **benign vendor/Kit/platform** messages seen on the DGX Spark host and may be ignored:
+Phase 1 host runs (`run_isaac_viz.sh` / `smoke_isaac_viz.sh`) print many Kit lines at startup. **Do not silence them in code** ([spec.md](spec.md) Acceptance #8). Warnings **caused by this repo** must be fixed at the source. The following are **benign vendor/Kit/platform** messages seen on the DGX Spark host and may be ignored:
 
 | Warning (substring / source) | Why it is safe to ignore |
 |------------------------------|---------------------------|
@@ -166,7 +167,17 @@ Phase 1 host runs (`run_phase1_isaac.sh` / `smoke_phase1_isaac.sh`) print many K
 
 If a **new** warning appears that names this repo’s prims, URDF, or Python modules, treat it as a bug: fix the asset/script, do not filter the log.
 
-**Collision note:** Phase 1 IK does **not** keep the arm clear of the target sphere while moving — DLS returns a goal `q` only; viz interpolates joints; the marker is visual-only. See [spec.md](spec.md) § Phase 1 collision / obstacle policy.
+**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan fail: timed **standoff via-waypoint** recovery (`plan_recovery_*`), then fail-closed (yellow, no motion). Home reset is **opt-in** (`reset_to_home_before_each_trial: false` by default). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
+
+**Kit Console vs host terminal:** `print` goes to the host shell. Plan status lines are also mirrored with `carb.log_*` so they appear under Isaac Sim **Window → Console** (set the filter to Info/Verbose). That is not a live tee of the entire host terminal — only messages the viz process logs.
+
+**Headless marker↔EE side contact** (no Kit GUI — classifies tip vs side sphere hits along planned paths):
+
+```bash
+./scripts/host/spark_host_exec.sh ./scripts/host/diagnose_marker_ee_contact.sh --num-trials 24 --seed 0
+```
+
+Exit 1 only if an *executed* path has side contact. JSON/MD: `assets/logs/marker_ee_contact_diag.json`, `docs/marker_ee_contact_diag.md`.
 
 ### Environment and assets
 
@@ -221,6 +232,13 @@ pytest tests -q
 Runs the full unit suite (FK, DLS IK, validation, URDF prep helpers, contracts). No hardware; no Isaac Sim.  
 **Typical use:** after any kinematics or config change; CI equivalent locally.
 
+If a host shell shows `OSError: The temporary directory /tmp/pytest-of-<user> is not owned...`, a prior root/container run created that directory. `tests/conftest.py` scopes basetemp to `/tmp/pytest-uid-<uid>/` automatically. One-time cleanup if needed:
+
+```bash
+rm -rf /tmp/pytest-of-"$USER"   # only when that dir is owned by root
+pytest tests -q
+```
+
 #### `./scripts/run_phase1_baseline.sh`
 
 ```bash
@@ -258,32 +276,32 @@ Equivalent one-liner:
 "${ISAACSIM_PATH:-$HOME/isaacsim}/isaac-sim.sh"
 ```
 
-#### `./scripts/host/run_phase1_isaac.sh`
+#### `./scripts/host/run_isaac_viz.sh`
 
 ```bash
 # Quick run with a visible Kit window (host desktop / DISPLAY set)
-./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+./scripts/host/run_isaac_viz.sh --skip-tests -- \
   --num-poses 240 --visualize 48 --hold-s 0.4
 
 # Same metrics + in-Kit animation, no GUI window
-./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+./scripts/host/run_isaac_viz.sh --skip-tests -- \
   --num-poses 240 --visualize 48 --hold-s 0.4 --headless
 
 # Full Phase 1 acceptance with GUI + subset animation
-./scripts/host/run_phase1_isaac.sh -- \
+./scripts/host/run_isaac_viz.sh -- \
   --num-poses 1000 --visualize 48 --hold-s 0.75
 ```
 
-**Single host run:** evaluates DLS IK metrics on `--num-poses` samples, writes the Phase 1 report/JSON, imports MyCobot to USD, and animates `--visualize` trials. Each IK goal is a **12 mm sphere that stays red until EE tip contact**, then turns **green**. Workspace sampling uses **240** stratified cells (12×4×5).  
+**Single host run:** evaluates DLS IK metrics on `--num-poses` samples, writes the Phase 1 report/JSON, imports MyCobot to USD, and animates `--visualize` trials. Each IK goal is a **12 mm sphere**: **red** pending, **green** on EE tip contact, **yellow** on plan failure. Workspace sampling uses **240** stratified cells (12×4×5).  
 **Typical use:** see classical IK on the real robot mesh while producing the same metrics report as the NumPy baseline. Must run on the **host** (or with Kit mounted + `SPARK_ALLOW_CONTAINER_ISAAC=1`).
 
-`--visualize N` means animate N trials **inside Kit**; it does **not** open a window by itself. Without `--headless`, Kit starts with a GUI (needs `DISPLAY`). Prefer `./scripts/host/smoke_phase1_isaac.sh` for the short TDD path (headless by default).
+`--visualize N` means animate N trials **inside Kit**; it does **not** open a window by itself. Without `--headless`, Kit starts with a GUI (needs `DISPLAY`). Prefer `./scripts/host/smoke_isaac_viz.sh` for the short TDD path (headless by default).
 
 **Manual GUI for several minutes** (host desktop; window stays open until you close it — no `--auto-exit`):
 
 ```bash
 export ISAACSIM_PATH="${ISAACSIM_PATH:-$HOME/isaacsim}"
-./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+./scripts/host/run_isaac_viz.sh --skip-tests -- \
   --num-poses 240 --visualize 48 --hold-s 6
 # ≈ 30 × 6 s ≈ 3 minutes of target holds, then Kit stays open for inspection
 ```
@@ -301,25 +319,33 @@ See [docs/isaac_sim_host.md](docs/isaac_sim_host.md).
 Host Isaac Sim URDF→USD conversion only (no metrics animation). Writes prepared assets under `assets/robots/`.  
 **Typical use:** refresh the robot USD after mesh/URDF changes without running the full Phase 1 viz loop.
 
-#### `./scripts/host/smoke_phase1_isaac.sh`
+#### `./scripts/host/smoke_isaac_viz.sh`
 
 ```bash
 # Host shell (default: headless Kit — no window; still animates trials in-stage):
-./scripts/host/smoke_phase1_isaac.sh
+./scripts/host/smoke_isaac_viz.sh
 
 # Visible Isaac Sim window (host graphical session with DISPLAY):
-./scripts/host/smoke_phase1_isaac.sh --gui
+./scripts/host/smoke_isaac_viz.sh --gui
 
 # From Cursor/container (nsenter → host Kit; headless unless you add --gui on host):
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
 ```
 
-Short Phase 1 metrics + articulation animation smoke for TDD / CI-like verification. Default is **headless** Kit (CI / remote PR gate). Env knobs: `PHASE1_SMOKE_N_POSES`, `PHASE1_SMOKE_VISUALIZE`, `PHASE1_SMOKE_HOLD_S`.
+Short Phase 1 metrics + articulation animation smoke for TDD / CI-like verification. Default is **headless** Kit (CI / remote PR gate). Env knobs: `ISAAC_VIZ_SMOKE_N_POSES`, `ISAAC_VIZ_SMOKE_VISUALIZE`, `ISAAC_VIZ_SMOKE_HOLD_S`, `ISAAC_VIZ_SMOKE_RESET_TO_HOME`.
+
+Home reset (opt-in; YAML default off):
+
+```bash
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
+# or:
+ISAAC_VIZ_SMOKE_RESET_TO_HOME=1 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
+```
 
 **Policy:** remote GitHub PR / CI = headless only. On a **DGX Spark with Isaac Sim**, after headless succeeds, run `--gui` (agent can do this without a manual host shell):
 
 ```bash
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
 ```
 
 Uses nsenter + `runuser` as `SPARK_HOST_USER` and `--auto-exit`. After changing `configs/robot/joint_drives.yaml`, re-import (do not pass `--keep-prepared`) so USD regenerates.
@@ -327,15 +353,15 @@ Uses nsenter + `runuser` as `SPARK_HOST_USER` and `--auto-exit`. After changing 
 Gated pytest (skips unless enabled; headless):
 
 ```bash
-SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_phase1_isaac_smoke.py -q
+SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_isaac_viz_smoke.py -q
 # From container, the test delegates via spark_host_exec automatically.
 ```
 
 #### `./scripts/host/spark_host_exec.sh`
 
 ```bash
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
-./scripts/host/spark_host_exec.sh ./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
+./scripts/host/spark_host_exec.sh ./scripts/host/run_isaac_viz.sh --skip-tests -- \
   --num-poses 240 --visualize 48 --headless
 ```
 

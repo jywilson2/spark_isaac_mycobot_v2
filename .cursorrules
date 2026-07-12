@@ -31,7 +31,7 @@ Do not start Phase 4 RL code until Phase 1 acceptance tests pass. Prefer complet
 * Never generate legacy ROS 1 syntax (`rospy`, `roslaunch` XML).
 * Use `rclpy` and modern C++17 `rclcpp` only.
 * Prefer Isaac Sim Articulation API for sim control loops over heavy CPU-bound controller emulation.
-* **Isaac Sim / Isaac Lab:** Prefer running directly on the DGX Spark **host** (`./scripts/host/launch_isaac_sim.sh`, `./scripts/host/run_phase1_isaac.sh`, Isaac Lab scripts). The Isaac ROS / Cursor container typically has no GPU Kit binaries — if `python.sh` is missing there, use host launch or `scripts/host/spark_host_exec.sh`; do not treat that as a training failure.
+* **Isaac Sim / Isaac Lab:** Prefer running directly on the DGX Spark **host** (`./scripts/host/launch_isaac_sim.sh`, `./scripts/host/run_isaac_viz.sh`, Isaac Lab scripts). The Isaac ROS / Cursor container typically has no GPU Kit binaries — if `python.sh` is missing there, use host launch or `scripts/host/spark_host_exec.sh`; do not treat that as a training failure.
 * Override host repo path with `SPARK_HOST_REPO_ROOT` / user with `SPARK_HOST_USER` when needed. Opt into container Isaac with `SPARK_ALLOW_CONTAINER_ISAAC=1` only when Kit is actually mounted.
 
 ## Documentation Quality

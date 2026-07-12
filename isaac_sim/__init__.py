@@ -3,6 +3,6 @@
 
 Classical IK metrics still run via NumPy; this package drives the MyCobot USD
 in Isaac Sim so you can *see* FK/IK. See ``spec.md`` Phase 1 and
-``scripts/host/run_phase1_isaac.sh``.
+``scripts/host/run_isaac_viz.sh``.
 """
 from __future__ import annotations

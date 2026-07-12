@@ -29,3 +29,7 @@ urdf_hint: third_party/mycobot_ros2/mycobot_description/urdf/mycobot_280_m5/myco
 urdf_kinematics_asset: assets/urdf/mycobot_280_m5_kinematics.urdf
 ee_link: joint6_flange
 base_link: g_base
+# Nominal start pose for independent viz / planning trials (radians, joint1…6).
+# URDF reference (all zeros) keeps each episode comparable and avoids chaining
+# plan starts from the previous goal (which inflated PLAN_FAIL rates).
+home_joint_positions_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

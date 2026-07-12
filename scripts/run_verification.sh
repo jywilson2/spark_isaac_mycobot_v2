@@ -30,14 +30,22 @@ Usage: ./scripts/run_verification.sh <ci|spark|help>
                or if --with-isaac is passed
 
   spark   DGX Spark host development (Isaac Sim available)
-            1) Same as ci (pytest + headless Isaac smoke)
-            2) Required GUI smoke (--gui, --auto-exit via smoke script)
+            0) Preflight: refuse if another Kit viz is running; require cuRobo
+            1) pytest tests -q
+            2) Headless Isaac metrics smoke (no arm animation; visualize=0)
+            3) Phase 2 cuRobo MotionGen smoke
+            4) Required GUI smoke (--gui, --auto-exit via smoke script)
                Delegates through spark_host_exec when run from the container
+
+            One-time host setup: ./scripts/host/spark_host_exec.sh ./scripts/host/install_curobo.sh
+
+            Tip: do not pipe this script through head/tail — that can SIGPIPE the
+            parent while leaving an orphan Kit process on the GPU.
 
 Options (after mode):
   --with-isaac     For ci: also run headless Isaac smoke (sets SPARK_RUN_ISAAC_SMOKE=1)
   --skip-pytest    Skip the NumPy unit suite (debug only)
-  --skip-gui       For spark: stop after headless (not for declaring Spark verification done)
+  --skip-gui       For spark: stop after cuRobo smoke (exit 2; incomplete Spark gate)
 
 Examples:
   ./scripts/run_verification.sh ci
@@ -85,24 +93,42 @@ run_pytest() {
     # shellcheck disable=SC1091
     source "${ROOT}/.venv/bin/activate"
   fi
+  # basetemp is UID-scoped via tests/conftest.py (avoids root vs host /tmp clash).
   python3 -m pytest tests -q "${EXTRA[@]+"${EXTRA[@]}"}"
 }
 
 run_headless_isaac() {
   echo "=== CI: headless Isaac Sim smoke ==="
+  # Spark already runs a full GUI animation later — keep headless to metrics only
+  # so we do not burn ~3–5 min twice or leave two Kits competing for the GPU.
+  # Scope the env to this invocation only (do not leak into the GUI stage).
+  local -a cmd
   if [[ -f /.dockerenv ]]; then
-    bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/smoke_phase1_isaac.sh
+    cmd=(bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/smoke_isaac_viz.sh)
   else
-    bash "${ROOT}/scripts/host/smoke_phase1_isaac.sh"
+    cmd=(bash "${ROOT}/scripts/host/smoke_isaac_viz.sh")
+  fi
+  if [[ "${MODE}" == "spark" ]]; then
+    local viz="${ISAAC_VIZ_SMOKE_HEADLESS_VISUALIZE:-${PHASE1_SMOKE_HEADLESS_VISUALIZE:-0}}"
+    echo "NOTE: Spark headless uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (metrics only)."
+    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" "${cmd[@]}"
+  else
+    "${cmd[@]}"
   fi
 }
 
 run_gui_isaac() {
   echo "=== Spark: GUI Isaac Sim smoke (required after headless) ==="
+  # Explicit GUI visualize count (default 48); never inherit headless 0.
+  local viz="${ISAAC_VIZ_SMOKE_GUI_VISUALIZE:-${PHASE1_SMOKE_GUI_VISUALIZE:-${ISAAC_VIZ_SMOKE_VISUALIZE:-${PHASE1_SMOKE_VISUALIZE:-48}}}}"
+  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz}."
   if [[ -f /.dockerenv ]]; then
-    bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/smoke_phase1_isaac.sh --gui
+    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" \
+      bash "${ROOT}/scripts/host/spark_host_exec.sh" \
+      ./scripts/host/smoke_isaac_viz.sh --gui
   else
-    bash "${ROOT}/scripts/host/smoke_phase1_isaac.sh" --gui
+    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" \
+      bash "${ROOT}/scripts/host/smoke_isaac_viz.sh" --gui
   fi
 }
 
@@ -110,8 +136,37 @@ run_curobo_smoke() {
   echo "=== Spark: Phase 2 cuRobo MotionGen smoke ==="
   if [[ -f /.dockerenv ]]; then
     bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/smoke_phase2_curobo.sh
+    bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/verify_target_obstacle.sh
+    bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/diagnose_plan_recovery.sh --num-trials 12
   else
     bash "${ROOT}/scripts/host/smoke_phase2_curobo.sh"
+    bash "${ROOT}/scripts/host/verify_target_obstacle.sh"
+    bash "${ROOT}/scripts/host/diagnose_plan_recovery.sh" --num-trials 12
+  fi
+}
+
+spark_preflight() {
+  echo "=== Spark preflight ==="
+  # A previous `... | head` / Ctrl+C can leave Kit holding the GPU; refuse early.
+  if pgrep -f 'run_ik_viz.py|run_phase1_ik_viz.py' >/dev/null 2>&1; then
+    echo "ERROR: another Isaac viz (run_ik_viz.py) is already running." >&2
+    echo "  Kill the orphan Kit (or wait for it), then re-run." >&2
+    echo "  Example: pgrep -af 'run_ik_viz.py|kit'" >&2
+    exit 1
+  fi
+  # Fail fast before a multi-minute Isaac launch when cuRobo is missing.
+  if [[ -f /.dockerenv ]]; then
+    if ! bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/probe_curobo.sh; then
+      echo "ERROR: cuRobo not available on the host Isaac python." >&2
+      echo "  One-time: ./scripts/host/spark_host_exec.sh ./scripts/host/install_curobo.sh" >&2
+      exit 1
+    fi
+  else
+    if ! bash "${ROOT}/scripts/host/probe_curobo.sh"; then
+      echo "ERROR: cuRobo not available in Isaac python." >&2
+      echo "  One-time: ./scripts/host/install_curobo.sh" >&2
+      exit 1
+    fi
   fi
 }
 
@@ -136,6 +191,7 @@ case "${MODE}" in
     echo "# Verification mode: DGX Spark + Isaac Sim #"
     echo "# (CI suite, then cuRobo, then required GUI) #"
     echo "############################################"
+    spark_preflight
     run_pytest
     export SPARK_RUN_ISAAC_SMOKE=1
     run_headless_isaac

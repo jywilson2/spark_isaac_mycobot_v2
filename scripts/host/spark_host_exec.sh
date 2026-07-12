@@ -182,6 +182,16 @@ spark_delegate_to_host() {
     ISAACSIM_PYTHON_EXE="${isaac_py}"
     PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
   )
+  # Forward optional Phase 1 smoke knobs (headless metrics-only on Spark, etc.).
+  local _fwd
+  for _fwd in ISAAC_VIZ_SMOKE_VISUALIZE ISAAC_VIZ_SMOKE_N_POSES ISAAC_VIZ_SMOKE_HOLD_S \
+    ISAAC_VIZ_SMOKE_KEEP_GUI_OPEN ISAAC_VIZ_SMOKE_KEEP_PREPARED ISAAC_VIZ_SMOKE_RESET_TO_HOME \
+    PHASE1_SMOKE_VISUALIZE PHASE1_SMOKE_N_POSES PHASE1_SMOKE_HOLD_S \
+    PHASE1_SMOKE_KEEP_GUI_OPEN PHASE1_SMOKE_KEEP_PREPARED PHASE1_SMOKE_RESET_TO_HOME; do
+    if [[ -n "${!_fwd:-}" ]]; then
+      ns_env+=("${_fwd}=${!_fwd}")
+    fi
+  done
 
   # Drop to the host desktop user when possible (X11 + writable home).
   # Override with SPARK_HOST_RUN_AS_USER=0 to force root (debug only).
@@ -217,7 +227,7 @@ spark_delegate_to_host() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  # CLI: ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh [args...]
+  # CLI: ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh [args...]
   if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <repo-relative-script> [args...]" >&2
     exit 2

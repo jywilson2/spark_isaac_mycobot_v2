@@ -17,7 +17,7 @@ README “Phase N libraries” section in the same change set (see `spec.md` § 
 | [NumPy](https://numpy.org/doc/stable/) | Arrays, linalg | FK / DLS / stratified sampling / metrics |
 | [PyYAML](https://pyyaml.org/) | Config load | `configs/robot/*.yaml`, `configs/ik/*.yaml` |
 | [pytest](https://docs.pytest.org/en/stable/) | Fixtures, asserts | `tests/test_*.py` Phase 1 contracts (including even workspace coverage + 160 °/s motion cap) |
-| [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit / Articulation | Host metrics+viz (`isaac_sim/run_phase1_ik_viz.py`) |
+| [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit / Articulation | Host metrics+viz (`isaac_sim/run_ik_viz.py`) |
 | [pxr / USD](https://openusd.org/) | Stage / materials | Target sphere + lighting |
 | [mycobot_ros2](https://github.com/elephantrobotics/mycobot_ros2) | Vendor URDF/meshes | Prepared via `isaac_sim/urdf_utils.py` for rendered Phase 1 |
 
@@ -29,8 +29,10 @@ README “Phase N libraries” section in the same change set (see `spec.md` § 
 | [PyYAML](https://pyyaml.org/) | Config load | `configs/planning/collision.yaml` |
 | [pytest](https://docs.pytest.org/en/stable/) | Fixtures, asserts | `tests/test_phase2_geometry.py` |
 | [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit viz logging | `PATH_OK` / `PATH_COLLISION` during host animation |
-| [cuRobo](https://curobo.org/) (optional later) | Apache-2.0 GPU planner | Documented host backend for collision-free trajectories |
-| [MoveIt 2](https://moveit.picknik.ai/) (optional later) | ROS 2 planning | Documented hardware deployment option |
+| [cuRobo](https://curobo.org/) | Apache-2.0 GPU planner | Host `MotionGen` collision-free trajectories (fail-closed) |
+| [Isaac ROS cuMotion](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/index.html) | ROS 2 cuRobo-based motion | Future hardware / multi-waypoint recovery option |
+| [MoveIt 2](https://moveit.picknik.ai/) | ROS 2 planning (OMPL, etc.) | Named states, approach/retreat, pipeline retries |
+| [OMPL](https://ompl.kavrakilab.org/) | Sampling-based planning | Underpins many MoveIt planners |
 
 Vendor reach / speed reference: [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) (280 mm, 160 °/s) → `configs/robot/workspace.yaml`.  
 v1 even-coverage reference: `spark_isaac_mycobot_demo/isaac_lab/mdp_core.py` (cylindrical annulus + stratified demo bins).

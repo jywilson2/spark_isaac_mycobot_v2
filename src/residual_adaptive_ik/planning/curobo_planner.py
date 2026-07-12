@@ -37,6 +37,11 @@ from residual_adaptive_ik.kinematics.urdf_model import (
     resolve_urdf_path,
 )
 from residual_adaptive_ik.planning.joint_path import plan_joint_lerp_checked
+from residual_adaptive_ik.planning.sphere_fit_mycobot import (
+    DEFAULT_TIP_LINKS_IGNORE_TARGET,
+    adjacent_self_collision_ignore,
+    load_collision_spheres_yaml,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WORLD_YAML = _REPO_ROOT / "configs" / "planning" / "curobo_world.yaml"
@@ -143,32 +148,42 @@ def prepare_curobo_urdf(
 def build_mycobot_curobo_robot_cfg(
     *,
     urdf_path: Path | str | None = None,
+    spheres_yaml: Path | None = None,
+    omit_tip_links: bool = False,
 ) -> dict[str, Any]:
-    """Build a cuRobo ``robot_cfg`` dict for MyCobot 280 (coarse collision spheres).
+    """Build a cuRobo ``robot_cfg`` dict for MyCobot 280.
 
-    Spheres are intentionally conservative (tutorial). Refine later with cuRobo's
-    sphere-fitting tools if mesh-accurate volumes are required.
+    Collision spheres come from cuRobo mesh fitting
+    (``configs/planning/curobo/mycobot_280_collision_spheres.yaml``), not
+    hand-tuned radii. See ``sphere_fit_mycobot.py``.
+
+    omit_tip_links:
+        When True, drop tip links (default ``joint6_flange``) from collision
+        spheres so the tip may occupy the volumetric IK target at contact
+        while proximal EE / arm spheres still cannot sweep through it.
     """
     if urdf_path is None:
         urdf = prepare_curobo_urdf()
     else:
         urdf = Path(urdf_path)
     joint_names = list(DEFAULT_REVOLUTE_JOINT_NAMES)
-    # Coarse spheres in each moving link frame (meters).
-    spheres = {
-        "joint1": [{"center": [0.0, 0.0, 0.07], "radius": 0.035}],
-        "joint2": [
-            {"center": [0.0, 0.02, 0.0], "radius": 0.03},
-            {"center": [0.0, 0.06, 0.0], "radius": 0.03},
-        ],
-        "joint3": [
-            {"center": [0.0, 0.02, 0.0], "radius": 0.028},
-            {"center": [0.0, 0.06, 0.0], "radius": 0.028},
-        ],
-        "joint4": [{"center": [0.0, 0.0, 0.0], "radius": 0.026}],
-        "joint5": [{"center": [0.0, 0.0, 0.0], "radius": 0.024}],
-        "joint6": [{"center": [0.0, 0.0, 0.0], "radius": 0.022}],
-        "joint6_flange": [{"center": [0.0, 0.0, 0.015], "radius": 0.018}],
+    fitted = load_collision_spheres_yaml(spheres_yaml)
+    spheres = dict(fitted["collision_spheres"])
+    tip_links = list(
+        fitted.get("tip_links_ignore_target", DEFAULT_TIP_LINKS_IGNORE_TARGET)
+    )
+    if omit_tip_links:
+        for tip in tip_links:
+            spheres.pop(tip, None)
+    collision_links = list(spheres.keys())
+    ignore = fitted.get("self_collision_ignore") or adjacent_self_collision_ignore(
+        tuple(collision_links)
+    )
+    # Keep ignore entries only for links we still collide.
+    ignore = {
+        k: [x for x in v if x in spheres]
+        for k, v in ignore.items()
+        if k in spheres
     }
     return {
         "robot_cfg": {
@@ -179,35 +194,11 @@ def build_mycobot_curobo_robot_cfg(
                 "asset_root_path": str(urdf.resolve().parent),
                 "base_link": DEFAULT_BASE_LINK,
                 "ee_link": DEFAULT_EE_LINK,
-                "collision_link_names": [
-                    "joint1",
-                    "joint2",
-                    "joint3",
-                    "joint4",
-                    "joint5",
-                    "joint6",
-                    "joint6_flange",
-                ],
+                "collision_link_names": collision_links,
                 "collision_spheres": spheres,
                 "collision_sphere_buffer": 0.0,
-                "self_collision_ignore": {
-                    "joint1": ["joint2"],
-                    "joint2": ["joint1", "joint3"],
-                    "joint3": ["joint2", "joint4"],
-                    "joint4": ["joint3", "joint5"],
-                    "joint5": ["joint4", "joint6", "joint6_flange"],
-                    "joint6": ["joint5", "joint6_flange"],
-                    "joint6_flange": ["joint5", "joint6"],
-                },
-                "self_collision_buffer": {
-                    "joint1": 0.0,
-                    "joint2": 0.0,
-                    "joint3": 0.0,
-                    "joint4": 0.0,
-                    "joint5": 0.0,
-                    "joint6": 0.0,
-                    "joint6_flange": 0.0,
-                },
+                "self_collision_ignore": ignore,
+                "self_collision_buffer": {name: 0.0 for name in collision_links},
                 "use_global_cumul": True,
                 "mesh_link_names": [],
                 "cspace": {
@@ -258,6 +249,32 @@ class PlannedTrajectory:
         return bool(self.success) and self.waypoints_rad.size > 0
 
 
+def tip_on_sphere_surface(
+    tip_start_m: np.ndarray,
+    sphere_center_m: np.ndarray,
+    sphere_radius_m: float,
+    *,
+    margin_m: float = 0.008,
+) -> np.ndarray:
+    """Return a tip position on the near surface of a sphere obstacle (meters).
+
+    Standoff = ``sphere_radius_m + margin_m`` along the approach from
+    ``tip_start_m`` toward ``sphere_center_m``. Keeps fitted EE/flange spheres
+    outside the marker volume while still allowing red→green tip contact once
+    the tip reaches the surface (distance ≤ marker radius).
+    """
+    start = np.asarray(tip_start_m, dtype=float).reshape(3)
+    center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+    delta = center - start
+    dist = float(np.linalg.norm(delta))
+    standoff = float(sphere_radius_m) + float(margin_m)
+    if dist < 1e-9:
+        return center - np.array([0.0, 0.0, standoff], dtype=float)
+    if dist <= standoff:
+        return start.copy()
+    return center - (standoff / dist) * delta
+
+
 class CuRoboMotionPlanner:
     """Lazy-initialized cuRobo ``MotionGen`` wrapper for MyCobot 280."""
 
@@ -267,13 +284,61 @@ class CuRoboMotionPlanner:
         world_yaml: Path | None = None,
         urdf_path: Path | str | None = None,
         interpolation_dt_s: float = 0.02,
+        omit_tip_links: bool = False,
     ) -> None:
-        self._world = load_world_config(world_yaml)
+        self._world_base = load_world_config(world_yaml)
         self._urdf_path = urdf_path
         self._interpolation_dt_s = float(interpolation_dt_s)
+        # Keep tip/flange spheres so the marker cannot pass through the EE side.
+        # With a volumetric target, plan tip onto the marker surface (see
+        # ``plan_to_joint_goal``) rather than into the center.
+        self._omit_tip_links = bool(omit_tip_links)
         self._motion_gen = None
         self._joint_names = list(DEFAULT_REVOLUTE_JOINT_NAMES)
         self._device = None
+
+    def _world_dict_with_obstacles(
+        self, obstacles: list[SphereObstacle] | None
+    ) -> dict[str, Any]:
+        """Merge ground cuboids with volumetric sphere obstacles (meters).
+
+        Important (cuRobo primitive checker):
+        ``WorldConfig.sphere`` is kept on the CPU model but is **not** queried by
+        the default PRIMITIVE collision checker (``collision_types={'primitive':
+        True}``). Callers must run ``WorldConfig.create_obb_world`` so spheres
+        become axis-aligned cuboids that the GPU checker actually uses. See
+        ``scripts/host/verify_target_obstacle.sh``.
+        """
+        world = dict(self._world_base)
+        sphere_map: dict[str, Any] = {}
+        if obstacles:
+            for i, obs in enumerate(obstacles):
+                name = "ik_target" if i == 0 else f"obstacle_{i}"
+                c = np.asarray(obs.center_m, dtype=float).reshape(3)
+                sphere_map[name] = {
+                    "radius": float(obs.radius_m),
+                    "pose": [
+                        float(c[0]),
+                        float(c[1]),
+                        float(c[2]),
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                }
+        world["sphere"] = sphere_map
+        return world
+
+    def _world_config_for_checker(
+        self, obstacles: list[SphereObstacle] | None
+    ):
+        """Build a WorldConfig whose obstacles the GPU checker will query."""
+        from curobo.geom.types import WorldConfig
+
+        raw = WorldConfig.from_dict(self._world_dict_with_obstacles(obstacles))
+        # Convert spheres/capsules → cuboids (OBBs) for PRIMITIVE checker.
+        return WorldConfig.create_obb_world(raw)
 
     def _ensure(self) -> None:
         if self._motion_gen is not None:
@@ -285,14 +350,24 @@ class CuRoboMotionPlanner:
         from curobo.wrap.reacher.motion_gen import MotionGen, MotionGenConfig
 
         self._device = torch.device("cuda:0")
-        robot_cfg = build_mycobot_curobo_robot_cfg(urdf_path=self._urdf_path)
+        robot_cfg = build_mycobot_curobo_robot_cfg(
+            urdf_path=self._urdf_path,
+            omit_tip_links=self._omit_tip_links,
+        )
+        # Reserve cuboid cache slots: ground + at least one IK target OBB.
+        world0 = self._world_config_for_checker(None)
         motion_gen_cfg = MotionGenConfig.load_from_robot_config(
             robot_cfg,
-            self._world,
+            world0,
             interpolation_dt=self._interpolation_dt_s,
+            collision_cache={"obb": 8},
         )
         self._motion_gen = MotionGen(motion_gen_cfg)
         self._motion_gen.warmup(enable_graph=True, warmup_js_trajopt=False)
+
+    def _apply_obstacles(self, obstacles: list[SphereObstacle] | None) -> None:
+        assert self._motion_gen is not None
+        self._motion_gen.update_world(self._world_config_for_checker(obstacles))
 
     def plan_to_pose(
         self,
@@ -301,6 +376,7 @@ class CuRoboMotionPlanner:
         target_quaternion_wxyz: np.ndarray,
         *,
         max_attempts: int = 4,
+        obstacles: list[SphereObstacle] | None = None,
     ) -> PlannedTrajectory:
         """Plan a collision-free trajectory to an EE pose (meters / wxyz)."""
         try:
@@ -318,6 +394,17 @@ class CuRoboMotionPlanner:
         from curobo.types.math import Pose
         from curobo.types.robot import JointState
         from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
+
+        try:
+            self._apply_obstacles(obstacles)
+        except Exception as exc:  # noqa: BLE001
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=self._interpolation_dt_s,
+                success=False,
+                backend="curobo",
+                message=f"world_update_failed:{exc}",
+            )
 
         q0 = np.asarray(q_start_rad, dtype=np.float32).reshape(1, 6)
         pos = np.asarray(target_position_m, dtype=np.float32).reshape(3)
@@ -343,7 +430,6 @@ class CuRoboMotionPlanner:
                 message=f"plan_failed:{getattr(result, 'status', 'unknown')}",
             )
         traj = result.get_interpolated_plan()
-        # traj.position: (T, DOF)
         waypoints = traj.position.detach().cpu().numpy().astype(float)
         dt = float(getattr(result, "interpolation_dt", self._interpolation_dt_s))
         return PlannedTrajectory(
@@ -361,15 +447,41 @@ class CuRoboMotionPlanner:
         *,
         model: UrdfKinematicModel | None = None,
         max_attempts: int = 4,
+        obstacles: list[SphereObstacle] | None = None,
     ) -> PlannedTrajectory:
-        """Plan to the FK pose of ``q_goal_rad`` (classical IK tip goal)."""
+        """Plan to the FK pose of ``q_goal_rad`` (classical IK tip goal).
+
+        When ``obstacles`` includes a volumetric marker at the tip goal, the
+        MotionGen tip target is placed on the **near surface** of that sphere
+        (plus a small margin) so flange collision spheres are not forced through
+        the marker. Green contact still fires when the tip reaches the surface.
+        """
         mdl = model or get_default_model()
         pose = forward_kinematics(q_goal_rad, model=mdl)
+        tip_goal = np.asarray(pose.position_m, dtype=float).reshape(3)
+        tip_start = forward_kinematics(q_start_rad, model=mdl).position_m
+        tip_plan = tip_goal
+        obs = list(obstacles or [])
+        if obs:
+            # Prefer an obstacle whose center is the tip goal (IK marker).
+            marker = obs[0]
+            for candidate in obs:
+                if float(
+                    np.linalg.norm(
+                        np.asarray(candidate.center_m, dtype=float).reshape(3) - tip_goal
+                    )
+                ) < 1e-4:
+                    marker = candidate
+                    break
+            tip_plan = tip_on_sphere_surface(
+                tip_start, marker.center_m, float(marker.radius_m)
+            )
         return self.plan_to_pose(
             q_start_rad,
-            pose.position_m,
+            tip_plan,
             pose.quaternion_wxyz,
             max_attempts=max_attempts,
+            obstacles=obstacles,
         )
 
 
@@ -384,26 +496,55 @@ def plan_collision_free(
 ) -> PlannedTrajectory:
     """Plan a collision-free path, preferring cuRobo when available.
 
-    Fallback: NumPy collision-checked joint lerp. If the lerp collides with
-    ``obstacles`` or the ground plane, ``success=False`` (no motion).
+    ``obstacles`` are volumetric spheres (meters). The IK target marker must be
+    passed as a ``SphereObstacle``. Internally, spheres are converted to OBBs
+    via ``WorldConfig.create_obb_world`` so cuRobo's PRIMITIVE checker queries
+    them (raw ``WorldConfig.sphere`` alone is **not** enough).
+
+    Policy (fail closed on host)
+    ---------------------------
+    When cuRobo is preferred **and** available, a cuRobo reject is final:
+    we do **not** execute a NumPy joint lerp afterward. Coarse capsules often
+    miss EE-side vs marker contact, which produced GUI motion that still
+    clipped the target after logs showed ``plan_failed`` inside an
+    ``ok_fallback`` message.
+
+    NumPy collision-checked lerp is used only when cuRobo is unavailable or
+    ``prefer_curobo=False`` (CI). Optional escape hatch:
+    ``fallback_numpy_after_curobo_fail: true`` in ``collision.yaml``.
     """
     mdl = model or get_default_model()
     cfg = load_planning_config()
     link_r = float(cfg.get("link_radius_m", 0.025))
     ground_z = float(cfg.get("ground_z_m", 0.0))
     n_samples = int(cfg.get("path_samples", 24))
+    max_attempts = int(cfg.get("curobo_max_attempts", 4))
+    obs = list(obstacles or [])
 
     if prefer_curobo and curobo_available():
-        pl = planner or CuRoboMotionPlanner()
-        traj = pl.plan_to_joint_goal(q_start_rad, q_goal_rad, model=mdl)
+        pl = planner or CuRoboMotionPlanner(omit_tip_links=False)
+        traj = pl.plan_to_joint_goal(
+            q_start_rad,
+            q_goal_rad,
+            model=mdl,
+            obstacles=obs,
+            max_attempts=max_attempts,
+        )
         if traj.ok:
             return traj
-        # Keep the cuRobo failure reason when falling back.
+        # Fail closed unless explicitly allowed (unsafe for volumetric marker).
+        if not bool(cfg.get("fallback_numpy_after_curobo_fail", False)):
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=1.0 / 60.0,
+                success=False,
+                backend="curobo",
+                message=f"rejected_no_numpy_fallback|{traj.message}",
+            )
         curobo_msg = traj.message
     else:
         curobo_msg = "curobo_skipped"
 
-    obs = list(obstacles or [])
     path = plan_joint_lerp_checked(
         q_start_rad,
         q_goal_rad,

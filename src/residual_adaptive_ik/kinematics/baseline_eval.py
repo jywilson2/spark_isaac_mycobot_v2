@@ -363,7 +363,7 @@ def metrics_to_markdown(metrics: dict[str, Any]) -> str:
     if metrics.get("isaac_viz"):
         host_cmd = (
             "\n# Host (metrics + Isaac Sim rendering):\n"
-            "./scripts/host/run_phase1_isaac.sh\n"
+            "./scripts/host/run_isaac_viz.sh\n"
         )
     return f"""# Phase 1 — Classical IK Baseline
 
