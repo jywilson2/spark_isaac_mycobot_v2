@@ -35,6 +35,21 @@ Authoritative links: [REFERENCES.md](REFERENCES.md) § Phase 1 implementation li
 
 ---
 
+## Phase 2 libraries (how they are used)
+
+| Library / package | Role in Phase 2 |
+|-------------------|-----------------|
+| **NumPy** | Capsule–sphere distance tests; joint-space path sampling (CI default). |
+| **PyYAML** | `configs/planning/collision.yaml`. |
+| **pytest** | `tests/test_phase2_geometry.py` (+ validation obstacle wiring). |
+| **Isaac Sim** (host viz) | Logs `PATH_OK` / `PATH_COLLISION` during Phase 1 viz loop (same Kit entry). |
+| **cuRobo** (optional later, Apache-2.0) | Documented GPU planner for Spark — not required for Phase 2 foundation. |
+| **MoveIt 2** (optional later, ROS) | Documented for hardware stacks — not the residual brain. |
+
+Authoritative links: [REFERENCES.md](REFERENCES.md) § Phase 2 implementation libraries.
+
+---
+
 ## Design in one line
 
 ```text
@@ -50,8 +65,9 @@ The learned model never replaces the IK solver. Residuals default to **±0.5°**
 | Phase | Goal | Entry script |
 |-------|------|----------------|
 | **1** | Classical FK / numerical IK / validation baseline (+ optional host Isaac viz) | `./scripts/run_phase1_baseline.sh` or `./scripts/host/run_phase1_isaac.sh` |
-| **2** | Supervised residual MLP under simulated mismatch | `./scripts/run_phase2_supervised.sh` |
-| **3** | SAC residual RL in Isaac Lab (host GPU) | `./scripts/run_phase3_sac.sh` |
+| **2** | Geometry + collision-aware joint planning | `./scripts/run_phase2_geometry.sh` |
+| **3** | Supervised residual MLP under simulated mismatch | `./scripts/run_phase3_supervised.sh` |
+| **4** | SAC residual RL in Isaac Lab (host GPU) | `./scripts/run_phase4_sac.sh` |
 | **ROS 2** | Dry-run residual IK node; hardware opt-in | `./scripts/run_ros2_hardware_test.sh` |
 
 ---
@@ -339,23 +355,32 @@ Verifies Isaac Sim python discovery and related host prerequisites.
 
 ### Later phases and ROS 2 (stubs / gated)
 
-#### `./scripts/run_phase2_supervised.sh`
+#### `./scripts/run_phase2_geometry.sh`
 
 ```bash
-./scripts/run_phase2_supervised.sh
+./scripts/run_phase2_geometry.sh
 ```
 
-Entry point for supervised residual training (`train_supervised`). Still a stub until Phase 2 is implemented.  
-**Typical use:** future — train bounded `Δq` under simulated mismatch after Phase 1 is accepted.
+Phase 2 CI entry: geometry / planning unit tests + NumPy path-check smoke.  
+**Typical use:** after changing `geometry/` or `planning/`, or as part of `./scripts/run_verification.sh ci`.
 
-#### `./scripts/run_phase3_sac.sh`
+#### `./scripts/run_phase3_supervised.sh`
 
 ```bash
-./scripts/run_phase3_sac.sh
+./scripts/run_phase3_supervised.sh
 ```
 
-Entry for SAC residual RL; intended for Isaac Lab on the **host** (may delegate via `spark_host_exec`). Stub until Phase 3 is implemented.  
-**Typical use:** future — train residual policy in sim only; never commands physical hardware during training.
+Entry point for supervised residual training (`train_supervised`). Still a stub until Phase 3 is implemented.  
+(`scripts/run_phase2_supervised.sh` remains a deprecation wrapper.)
+
+#### `./scripts/run_phase4_sac.sh`
+
+```bash
+./scripts/run_phase4_sac.sh
+```
+
+Entry for SAC residual RL; intended for Isaac Lab on the **host**. Stub until Phase 4 is implemented.  
+(`scripts/run_phase3_sac.sh` remains a deprecation wrapper.)
 
 #### `./scripts/host/install_isaac_lab.sh` / `./scripts/host/verify_isaac_lab.sh`
 

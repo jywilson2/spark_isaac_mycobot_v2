@@ -65,6 +65,8 @@ from residual_adaptive_ik.utils.logging_utils import write_json  # noqa: E402
 from residual_adaptive_ik.kinematics.workspace_sampling import (  # noqa: E402
     load_workspace_config,
 )
+from residual_adaptive_ik.geometry import SphereObstacle  # noqa: E402
+from residual_adaptive_ik.planning import plan_joint_lerp_checked  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -445,6 +447,33 @@ def run_viz(args: argparse.Namespace) -> int:
             target_xyz = np.asarray(trial.target.position_m, dtype=float).reshape(3)
             _set_target_marker(stage, target_xyz, contacted=False)
             contacted = False
+
+            # Phase 2: log whether the joint lerp would sweep proximal links
+            # through the goal sphere (NumPy capsules; tip allowed at goal).
+            try:
+                q_now = _get_joint_positions(articulation)
+            except Exception:
+                q_now = np.asarray(trial.q_sol, dtype=float).reshape(-1)
+            path = plan_joint_lerp_checked(
+                q_now,
+                trial.q_sol,
+                [
+                    SphereObstacle(
+                        center_m=target_xyz,
+                        radius_m=TARGET_MARKER_RADIUS_M,
+                        name="ik_target",
+                    )
+                ],
+                n_samples=24,
+                ignore_tip_segment=True,
+            )
+            if path.collision.collides:
+                print(
+                    f"  PATH_COLLISION n_hits={len(path.collision.reasons)} "
+                    f"head={list(path.collision.reasons[:3])}"
+                )
+            else:
+                print("  PATH_OK (no proximal link vs target-sphere hits)")
 
             def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
                 nonlocal contacted

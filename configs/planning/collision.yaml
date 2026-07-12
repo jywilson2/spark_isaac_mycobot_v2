@@ -1,0 +1,17 @@
+# Phase 2 — geometry + collision-aware joint planning (SI units).
+#
+# CI uses NumPy capsule–sphere checks (no GPU). On DGX Spark, optional later
+# backends: Isaac Sim PhysX contacts and/or NVIDIA cuRobo (Apache-2.0).
+# ROS 2 MoveIt 2 remains an option for hardware deployment stacks.
+
+# Approximate link radius for serial-chain capsules (meters).
+link_radius_m: 0.025
+
+# Samples along a joint-space lerp (intervals between start and goal).
+path_samples: 24
+
+# When true, tip segment may occupy the goal sphere at the final sample only.
+ignore_tip_segment_at_goal: true
+
+# Wire into validate_solution when callers pass SphereObstacle list / collision.
+enforce_collision_in_validation: true

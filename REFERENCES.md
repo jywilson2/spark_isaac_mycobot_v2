@@ -13,15 +13,26 @@ README “Phase N libraries” section in the same change set (see `spec.md` § 
 ## Phase 1 implementation libraries
 
 | Library | Docs / source | How Phase 1 uses it |
-|---|---|---|
-| [NumPy](https://numpy.org/doc/stable/) | Array API, linalg | FK/IK math, Jacobian DLS, workspace stratification, metrics aggregates |
-| [PyYAML](https://pyyaml.org/wiki/PyYAMLDocumentation) | `yaml.safe_load` | Robot / IK / drive / workspace configs under `configs/` |
+|---------|---------------|---------------------|
+| [NumPy](https://numpy.org/doc/stable/) | Arrays, linalg | FK / DLS / stratified sampling / metrics |
+| [PyYAML](https://pyyaml.org/) | Config load | `configs/robot/*.yaml`, `configs/ik/*.yaml` |
 | [pytest](https://docs.pytest.org/en/stable/) | Fixtures, asserts | `tests/test_*.py` Phase 1 contracts (including even workspace coverage + 160 °/s motion cap) |
-| [Isaac Sim docs](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit / Articulation / URDF importer | Host viz: import MyCobot, animate IK at hardware joint speed, red target sphere |
-| [USD / pxr](https://openusd.org/release/api/usd_page_front.html) | `UsdGeom`, `UsdShade` | Target marker sphere + scene prims in Kit |
+| [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit / Articulation | Host metrics+viz (`isaac_sim/run_phase1_ik_viz.py`) |
+| [pxr / USD](https://openusd.org/) | Stage / materials | Target sphere + lighting |
 | [mycobot_ros2](https://github.com/elephantrobotics/mycobot_ros2) | Vendor URDF/meshes | Prepared via `isaac_sim/urdf_utils.py` for rendered Phase 1 |
-| [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) | Reach 280 mm, max joint speed 160 °/s | `configs/robot/workspace.yaml`, GUI servo rate limit |
 
+## Phase 2 implementation libraries
+
+| Library | Docs / source | How Phase 2 uses it |
+|---------|---------------|---------------------|
+| [NumPy](https://numpy.org/doc/stable/) | Arrays, linalg | Capsule–sphere collision; joint-path sampling (CI default) |
+| [PyYAML](https://pyyaml.org/) | Config load | `configs/planning/collision.yaml` |
+| [pytest](https://docs.pytest.org/en/stable/) | Fixtures, asserts | `tests/test_phase2_geometry.py` |
+| [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit viz logging | `PATH_OK` / `PATH_COLLISION` during host animation |
+| [cuRobo](https://curobo.org/) (optional later) | Apache-2.0 GPU planner | Documented host backend for collision-free trajectories |
+| [MoveIt 2](https://moveit.picknik.ai/) (optional later) | ROS 2 planning | Documented hardware deployment option |
+
+Vendor reach / speed reference: [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) (280 mm, 160 °/s) → `configs/robot/workspace.yaml`.  
 v1 even-coverage reference: `spark_isaac_mycobot_demo/isaac_lab/mdp_core.py` (cylindrical annulus + stratified demo bins).
 
 ---

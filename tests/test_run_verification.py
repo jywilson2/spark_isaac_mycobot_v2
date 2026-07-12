@@ -15,6 +15,9 @@ def test_run_verification_script_exists_and_documents_modes():
     assert "spark)" in text
     assert "smoke_phase1_isaac.sh --gui" in text
     assert "Acceptance #7" in text
+    assert (REPO / "scripts" / "run_phase2_geometry.sh").is_file()
+    assert (REPO / "scripts" / "run_phase3_supervised.sh").is_file()
+    assert (REPO / "scripts" / "run_phase4_sac.sh").is_file()
 
 
 def test_spec_and_cursorrules_point_at_run_verification():

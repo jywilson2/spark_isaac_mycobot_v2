@@ -23,6 +23,12 @@ from residual_adaptive_ik.utils.transforms import (
     position_error_norm_m,
 )
 
+# Optional Phase 2 geometry (imported lazily-friendly for typing).
+from residual_adaptive_ik.geometry.collision import (  # noqa: E402
+    SphereObstacle,
+    check_config_collision,
+)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -54,6 +60,9 @@ def validate_solution(
     joint_lower_rad: np.ndarray | None = None,
     joint_upper_rad: np.ndarray | None = None,
     collision: bool | None = None,
+    obstacles: list[SphereObstacle] | None = None,
+    link_radius_m: float | None = None,
+    ignore_tip_segment: bool = True,
 ) -> ValidationResult:
     """Validate joint limits, residual bounds, FK pose error, and optional safety.
 
@@ -73,6 +82,14 @@ def validate_solution(
         Explicit residual ``Δq`` (radians) to bound-check.
     collision:
         Optional external collision flag; ``True`` rejects when provided.
+        Prefer ``obstacles`` (Phase 2) so geometry is computed, not asserted.
+    obstacles:
+        Optional sphere obstacles (meters). When provided and
+        ``enforce_collision`` is not false in ``config``, runs capsule checks.
+    link_radius_m:
+        Capsule radius override (meters); default 0.025.
+    ignore_tip_segment:
+        Allow the wrist→EE capsule to occupy a goal sphere (tip contact).
     """
     reasons: list[str] = []
     q_arr = np.asarray(q, dtype=float).reshape(-1)
@@ -98,7 +115,7 @@ def validate_solution(
         if reject_inf and (np.any(np.isinf(tgt_pos)) or np.any(np.isinf(tgt_quat))):
             reasons.append("inf_in_target_pose")
 
-    # Residual bounds (Phase 2/3 path); Phase 1 may omit residual fields.
+    # Residual bounds (Phase 3/4 path); Phase 1 may omit residual fields.
     delta: np.ndarray | None = None
     if residual_q is not None:
         delta = np.asarray(residual_q, dtype=float).reshape(-1)
@@ -163,5 +180,27 @@ def validate_solution(
 
     if collision is True:
         reasons.append("collision")
+
+    # Phase 2: geometry-backed collision (capsule links vs sphere obstacles).
+    if (
+        obstacles
+        and bool(config.get("enforce_collision", True))
+        and np.all(np.isfinite(q_arr))
+    ):
+        radius = (
+            float(link_radius_m)
+            if link_radius_m is not None
+            else float(config.get("link_radius_m", 0.025))
+        )
+        report = check_config_collision(
+            q_arr,
+            list(obstacles),
+            model=model,
+            link_radius_m=radius,
+            ignore_tip_segment=ignore_tip_segment,
+        )
+        if report.collides:
+            reasons.append("collision")
+            reasons.extend(report.reasons)
 
     return ValidationResult(ok=len(reasons) == 0, reasons=tuple(reasons))

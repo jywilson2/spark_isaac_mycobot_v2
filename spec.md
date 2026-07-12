@@ -6,15 +6,16 @@
 
 ## Purpose
 
-Create a three-phase research and implementation project that combines classical inverse kinematics with learning-based adaptation. The objective is to retain the accuracy, determinism, and safety of analytical or numerical IK while adding RL-style robustness to noise, calibration error, tool-frame mismatch, payload effects, and real-world motion variation.
+Create a **four-phase** research and implementation project that combines classical inverse kinematics with collision-aware motion, then learning-based adaptation. The objective is to retain the accuracy, determinism, and safety of analytical or numerical IK while adding RL-style robustness to noise, calibration error, tool-frame mismatch, payload effects, and real-world motion variation.
 
 This project targets the **Elephant Robotics MyCobot 280**, a compact 6-DOF arm with approximately 280 mm working radius, 250 g payload, and approximately ±0.5 mm repeatability. The development environment is assumed to include **NVIDIA Isaac Sim**, **Isaac Lab**, a **DGX Spark** workstation, and **ROS 2** for physical hardware control.
 
-The project must be implemented in three phases:
+The project must be implemented in four phases:
 
 1. **Phase 1 — Classical IK Baseline**
-2. **Phase 2 — Supervised Residual IK Model**
-3. **Phase 3 — SAC-Based Residual Reinforcement Learning**
+2. **Phase 2 — Geometry + Collision-Aware Planning**
+3. **Phase 3 — Supervised Residual IK Model** (formerly Phase 2)
+4. **Phase 4 — SAC-Based Residual Reinforcement Learning** (formerly Phase 3)
 
 The design principle is:
 
@@ -97,8 +98,8 @@ The learned system must not replace the IK solver. It must wrap around it.
 
 | Runtime | Runs Isaac Sim / Isaac Lab? | How agents and scripts execute |
 |---------|----------------------------|--------------------------------|
-| **DGX Spark host** (native shell where Isaac Sim is installed) | **Yes** | Phase 1 viz: `./scripts/host/run_phase1_isaac.sh`; GUI: `./scripts/host/launch_isaac_sim.sh`; Phase 3: Isaac Lab scripts |
-| **Isaac ROS container** (Cursor / `isaac-ros activate`) | Usually **No** GPU Kit | NumPy Phase 1–2 OK; for Sim/Lab use a host shell or `scripts/host/spark_host_exec.sh` |
+| **DGX Spark host** (native shell where Isaac Sim is installed) | **Yes** | Phase 1 viz: `./scripts/host/run_phase1_isaac.sh`; GUI: `./scripts/host/launch_isaac_sim.sh`; Phase 4: Isaac Lab scripts |
+| **Isaac ROS container** (Cursor / `isaac-ros activate`) | Usually **No** GPU Kit | NumPy Phase 1–3 OK; for Sim/Lab use a host shell or `scripts/host/spark_host_exec.sh` |
 
 Prefer **host-direct** Isaac Sim. Do **not** assume Phase 3 failed because the container lacks `python.sh`. Override host repo path with `SPARK_HOST_REPO_ROOT` or host user with `SPARK_HOST_USER` (default `admin`) when needed. Set `SPARK_ALLOW_CONTAINER_ISAAC=1` only if Kit is mounted into the container.
 
@@ -383,14 +384,67 @@ visual target marker (or other obstacles) while moving into position:
 - The solver returns a **goal** joint vector `q_sol` from a seeded numerical
   search; it does **not** generate a collision-checked Cartesian or joint path.
 - Host viz interpolates joints in configuration space at ≤ vendor joint speed;
-  intermediate poses are **not** validated against the target sphere.
+  intermediate poses are **not** validated against the target sphere (until
+  Phase 2 path checks are enabled in the viz logger).
 - The `/World/IkTarget` sphere is **visual-only** (no PhysX collider). Links may
   sweep through it; “contact” for red→green is geometric EE-tip distance only.
 - `validate_solution(..., collision=...)` accepts an **external** boolean hook
-  (`True` → reject with reason `"collision"`). Phase 1 never computes or passes
-  that flag. Self-collision / obstacle checking remains **future work** when a
-  geometry pipeline is available (spec Non-Negotiable #4: “self-collision if
-  available”).
+  (`True` → reject with reason `"collision"`). Phase 1 never computes geometry.
+  **Phase 2** supplies NumPy capsule–sphere checks via `obstacles=` and
+  collision-checked joint lerps (`residual_adaptive_ik.planning`).
+
+---
+
+# Phase 2 — Geometry + Collision-Aware Planning
+
+## Goal
+
+Add an explicit **geometry layer** and a minimal **path layer** so validation and
+host visualization can detect proximal-link collisions with sphere obstacles
+(including the IK target marker) along a joint-space motion.
+
+This phase does **not** replace classical IK or residual learning:
+
+```text
+planner / path check  →  collision-aware joint samples
+classical IK (DLS)    →  q_ik
+residual (Phases 3–4) →  bounded Δq
+validate (+ geometry) →  accept / fallback / no motion
+```
+
+## Library policy (open source)
+
+| Backend | License / stack | Role |
+|---------|-----------------|------|
+| **NumPy capsule–sphere** (default CI) | BSD-compatible ecosystem | Deterministic CI / tutorial geometry |
+| **NVIDIA cuRobo** (optional host, later) | Apache-2.0 | GPU collision-free trajectories on DGX Spark |
+| **Isaac Sim PhysX contacts** (optional host) | Isaac Sim runtime | Sim contact queries during Kit runs |
+| **ROS 2 MoveIt 2** (optional hardware later) | BSD / ROS | Deployment planning stack — not the residual brain |
+
+Prefer NumPy for CI. Prefer **cuRobo** over MoveIt for Spark GPU research when
+full trajectory optimization is needed. Prefer MoveIt when the primary consumer
+is a ROS 2 hardware bring-up. Never let a planner replace
+`q_final = q_ik + clamp(Δq)`.
+
+## Files
+
+- `src/residual_adaptive_ik/geometry/` — capsules, sphere obstacles, config checks
+- `src/residual_adaptive_ik/planning/` — collision-checked joint lerp
+- `configs/planning/collision.yaml` — radii / sample counts
+- `scripts/run_phase2_geometry.sh` — CI entry
+- `tests/test_phase2_geometry.py` — contracts
+- `docs/phase2_geometry.md` — report
+
+## Phase 2 Acceptance Criteria (initial)
+
+1. Capsule–sphere intersection tests are unit-tested (meters).
+2. `plan_joint_lerp_checked` samples a joint lerp and reports collisions.
+3. `validate_solution(..., obstacles=[...])` rejects colliding configurations.
+4. Host Isaac viz logs `PATH_OK` / `PATH_COLLISION` per trial (Spark smoke).
+5. Results summarized in `docs/phase2_geometry.md`.
+6. Tutorial-quality module docstrings (why / units / links to `spec.md`).
+
+---
 
 ## Phase 1 Metrics
 
@@ -455,7 +509,7 @@ Vendor URDF + meshes must resolve on the host (relative `third_party/mycobot_ros
 
 ---
 
-# Phase 2 — Supervised Residual IK Model
+# Phase 3 — Supervised Residual IK Model
 
 ## Goal
 
@@ -463,7 +517,7 @@ Train a supervised neural model that predicts small residual joint corrections `
 
 ## Key Principle
 
-Phase 2 should be trained before RL. Supervised residual learning is safer, easier to debug, and provides a strong initialization for Phase 3.
+Phase 3 should be trained before RL. Supervised residual learning is safer, easier to debug, and provides a strong initialization for Phase 4.
 
 ## Residual Formulation
 
@@ -587,7 +641,7 @@ Compare:
 2. IK + supervised residual,
 3. IK + residual + deterministic refinement.
 
-## Phase 2 Metrics
+## Phase 3 Metrics
 
 Report:
 
@@ -599,24 +653,24 @@ Report:
 - validation rejection rate,
 - improvement under each perturbation type.
 
-## Phase 2 Acceptance Criteria
+## Phase 3 Acceptance Criteria
 
-Phase 2 is complete when:
+Phase 3 is complete when:
 
 1. The supervised model improves median Cartesian error under simulated calibration/noise conditions.
 2. The model does not degrade clean baseline performance beyond an allowed tolerance.
 3. Residual corrections are always bounded.
 4. Validation catches invalid outputs.
 5. `pytest tests/test_residual_bounds.py` passes.
-6. Results are written to `docs/phase2_supervised.md`.
+6. Results are written to `docs/phase3_supervised.md`.
 
 ---
 
-# Phase 3 — SAC-Based Residual Reinforcement Learning
+# Phase 4 — SAC-Based Residual Reinforcement Learning
 
 ## Goal
 
-Use Soft Actor-Critic to improve residual correction behavior in simulation, especially under noisy, randomized, and partially mismatched conditions. SAC should refine the residual model from Phase 2, not replace the IK system.
+Use Soft Actor-Critic to improve residual correction behavior in simulation, especially under noisy, randomized, and partially mismatched conditions. SAC should refine the residual model from Phase 3, not replace the IK system.
 
 TD3 may be added later as a comparison, but SAC is the initial required algorithm.
 
@@ -769,7 +823,7 @@ Training script must support:
 - deterministic evaluation,
 - CSV/JSON logging.
 
-## Phase 3 Metrics
+## Phase 4 Metrics
 
 Compare:
 
@@ -790,9 +844,9 @@ Report:
 - residual magnitude,
 - robustness under randomized perturbations.
 
-## Phase 3 Acceptance Criteria
+## Phase 4 Acceptance Criteria
 
-Phase 3 is complete when:
+Phase 4 is complete when:
 
 1. SAC residual improves robustness under randomized perturbations compared with Phase 1.
 2. SAC residual does not significantly degrade clean-target performance.
@@ -1082,9 +1136,22 @@ Required Phase 1 order:
 8. baseline report,
 9. host Isaac Sim verification (tiered): CI / remote PR = headless smoke only (`scripts/host/smoke_phase1_isaac.sh` / gated `tests/test_phase1_isaac_smoke.py`); on a DGX Spark with Isaac Sim, after headless succeeds, required GUI smoke (`./scripts/host/smoke_phase1_isaac.sh --gui` from a native desktop session), with fixes for any host-path / Kit / windowing issues found.
 
-## Step 3 — Implement Phase 2
+## Step 3 — Implement Phase 2 (geometry + planning)
 
 Required Phase 2 order:
+
+1. capsule / sphere collision primitives (meters),
+2. configuration collision check,
+3. collision-checked joint lerp planner,
+4. wire `obstacles=` into `validate_solution`,
+5. CI script `run_phase2_geometry.sh` + tests,
+6. host viz `PATH_OK` / `PATH_COLLISION` logging,
+7. `docs/phase2_geometry.md`,
+8. (optional later) cuRobo / PhysX / MoveIt backends.
+
+## Step 4 — Implement Phase 3 (supervised residual)
+
+Required Phase 3 order:
 
 1. dataset schema,
 2. perturbation generator,
@@ -1092,11 +1159,11 @@ Required Phase 2 order:
 4. residual MLP,
 5. training script,
 6. evaluation script,
-7. report.
+7. report (`docs/phase3_supervised.md`).
 
-## Step 4 — Implement Phase 3
+## Step 5 — Implement Phase 4 (SAC residual)
 
-Required Phase 3 order:
+Required Phase 4 order:
 
 1. Isaac Lab environment stub,
 2. reward function,
@@ -1104,9 +1171,9 @@ Required Phase 3 order:
 4. SAC training wrapper,
 5. evaluation comparison,
 6. export checkpoint,
-7. report.
+7. report (`docs/phase4_sac.md`).
 
-## Step 5 — Implement ROS 2 integration
+## Step 6 — Implement ROS 2 integration
 
 Required ROS 2 order:
 
@@ -1196,7 +1263,13 @@ ros2 launch residual_adaptive_ik_ros residual_ik.launch.py mode:=validation_only
 - Store all experiment metrics in machine-readable CSV or JSON.
 - Write reports in Markdown under `docs/`.
 - Use deterministic seeds for repeatable experiments.
-- Prefer tutorial-quality comments: explain *why*, link to this spec / README / STATUS, and relate residuals to physical joint motion on the MyCobot.
+- Prefer tutorial-quality comments **and** module/function docstrings that maximize teachability:
+  - Explain *why* the code exists (problem it solves), not only *what* it does.
+  - State units explicitly (radians, meters, seconds, N·m/rad, …).
+  - Link to `spec.md` / `README.md` / `STATUS.md` / the owning phase section.
+  - Call out failure modes and fallbacks (validation reject → classical IK / no motion).
+  - Prefer a short “design choice” note when selecting NumPy vs Isaac vs cuRobo vs MoveIt.
+  - New packages under `src/residual_adaptive_ik/` must ship package `__init__.py` re-exports with a one-paragraph overview.
 - Agent/editor policy that is not a product requirement lives in [`.cursorrules`](.cursorrules).
 
 ---

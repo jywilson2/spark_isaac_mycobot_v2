@@ -317,6 +317,25 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 
 ---
 
+## Four-phase renumber + Phase 2 geometry foundation (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `spec.md` / `.cursorrules` / `README.md` / `STATUS.md` | **Updated** | Four phases; tutorial-quality docstring standard strengthened |
+| `src/residual_adaptive_ik/geometry/` | **Created** | NumPy capsule–sphere collision (meters) |
+| `src/residual_adaptive_ik/planning/` | **Created** | Collision-checked joint lerp |
+| `configs/planning/collision.yaml` | **Created** | Link radius / path samples |
+| `scripts/run_phase2_geometry.sh` | **Created** | CI entry |
+| `scripts/run_phase3_supervised.sh` / `run_phase4_sac.sh` | **Created** | Renumbered learning entries |
+| `scripts/run_phase2_supervised.sh` / `run_phase3_sac.sh` | **Updated** | Deprecation wrappers |
+| `validation.py` / `run_phase1_ik_viz.py` | **Updated** | `obstacles=` + `PATH_*` logging |
+| `tests/test_phase2_geometry.py` | **Created** | CI contracts |
+| `docs/phase2_geometry.md` / `REFERENCES.md` | **Created/Updated** | Phase 2 report + libraries |
+
+**Review recommended:** Capsule radii are approximate; decide when to gate viz motion on `PATH_COLLISION` vs log-only.
+
+---
+
 ## Collision policy + Isaac warning catalog (2026-07-11)
 
 | Path | Action | Notes |

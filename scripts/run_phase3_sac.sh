@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Phase 3 SAC residual training — must run on Isaac Sim host, not in container alone.
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=host/spark_host_exec.sh
-source "${ROOT}/scripts/host/spark_host_exec.sh"
-
-echo "Phase 3 SAC training uses Isaac Lab on the DGX Spark host."
-echo "Container callers should delegate via spark_host_exec (see STATUS.md)."
-export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
-python -m residual_adaptive_ik.learning.train_sac \
-  --config "${ROOT}/configs/learning/sac_residual.yaml" "$@"
+# Compatibility wrapper: SAC residual is now Phase 4 (four-phase plan).
+echo "NOTE: run_phase3_sac.sh is deprecated; use scripts/run_phase4_sac.sh" >&2
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run_phase4_sac.sh" "$@"

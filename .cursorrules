@@ -19,11 +19,12 @@ You are an advanced software engineer specializing in robot kinematics, Isaac Si
 Follow [spec.md](spec.md) Cursor Implementation Instructions:
 
 1. Phase 1 classical IK + validation + tests → baseline report
-2. Phase 2 supervised residual → report
-3. Phase 3 SAC residual in Isaac Lab → report
-4. ROS 2 dry-run node → gated hardware
+2. Phase 2 geometry + collision-aware planning → report
+3. Phase 3 supervised residual → report
+4. Phase 4 SAC residual in Isaac Lab → report
+5. ROS 2 dry-run node → gated hardware
 
-Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
+Do not start Phase 4 RL code until Phase 1 acceptance tests pass. Prefer completing Phase 2 geometry hooks before claiming collision-aware validation.
 
 ## ROS 2 / Isaac Constraints
 
@@ -35,7 +36,12 @@ Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
 
 ## Documentation Quality
 
-* Prefer tutorial-quality comments and docstrings: explain *why*, link to `spec.md` / `README.md` / `STATUS.md`, and state units (radians, meters, seconds) explicitly.
+* Prefer tutorial-quality comments and docstrings that maximize teachability:
+  * Explain *why* (problem + design choice), not only *what*.
+  * State units explicitly (radians, meters, seconds, …).
+  * Link to `spec.md` / `README.md` / `STATUS.md` and the owning phase.
+  * Document failure modes / fallbacks next to validation and motion code.
+  * New packages need a one-paragraph `__init__.py` overview + re-exports.
 * When changing behavior, configs, training, or verification, update in the same change set:
   * `spec.md` — authoritative requirements
   * `README.md` — how to run the current phase; **Phase N libraries** table when library usage changes
