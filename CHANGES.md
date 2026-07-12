@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Push gate: GUI required before remote push (2026-07-12 00:26)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `STATUS.md` | **Updated** | § Push-to-remote gate — GUI before `git push` |
+| `.cursorrules` | **Updated** | Agent must not push without GUI smoke |
+| `README.md`, `docs/phase2_status_and_resume.md`, `spec.md` | **Updated** | Cross-refs to the gate |
+
 ## Progressive near→far recovery vias (2026-07-12 00:23)
 
 | Path | Action | Notes |

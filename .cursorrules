@@ -63,6 +63,7 @@ Do not start Phase 4 RL code until Phase 1 acceptance tests pass. Prefer complet
 * During early scaffolding, `NotImplementedError` stubs with clear docstrings are allowed when matching [spec.md](spec.md) Step 1. Do not leave silent `# TODO` with no contract.
 * Never execute hardware motion from tests unless `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
 * Phase 1 kinematics / Isaac host-script changes: run **`./scripts/run_verification.sh`** — use **`ci`** for remote-PR-equivalent gates; on this **DGX Spark with Isaac Sim**, use **`spark`** (pytest → headless → required GUI). Do not stop after plain `pytest` alone on Spark. Remote GitHub PR CI must stay headless-only (`ci`). See [spec.md](spec.md) Phase 1 Acceptance Criteria item 7.
+* **Push-to-remote gate (Spark):** Never `git push` until **GUI Isaac viz smoke has passed** for the change set (`./scripts/run_verification.sh spark`, or an equivalent GUI smoke that exits 0). Do **not** opt out with `SPARK_RUN_ISAAC_GUI_SMOKE=0` as a shortcut before push. Documented in [STATUS.md](STATUS.md) § Push-to-remote gate. Remote CI / `ci` mode stays headless-only.
 * **Do not suppress warnings** to make tests look green. Resolve Isaac Sim / URDF / Python warnings at the source (config, assets, code). See [spec.md](spec.md) Phase 1 Acceptance Criteria item 8.
 ## Enumerated List of Changes
 

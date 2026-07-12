@@ -53,6 +53,20 @@ export ISAACSIM_PATH="${ISAACSIM_PATH:-$HOME/isaacsim}"
 
 Look for `Phase 2 planner: cuRobo MotionGen`, `PLAN_OK` / `PLAN_FAIL` with `via_attempts=N`, marker red→**green** on tip-face contact or yellow on fail. GUI smoke resets home **once** at start only (no per-trial `--reset-to-home`).
 
+## Push-to-remote gate (Spark / Phase 2)
+
+**Do not `git push` until GUI Isaac viz smoke has passed** on this change set.
+
+On the DGX Spark (Isaac Sim available), the required pre-push verification is:
+
+```bash
+./scripts/run_verification.sh spark
+```
+
+That runs pytest → headless metrics → cuRobo → **required GUI** (`smoke_isaac_viz.sh --gui`). A green NumPy-only `pytest` (or `SPARK_RUN_ISAAC_GUI_SMOKE=0`) is **not** sufficient to push. Remote GitHub PR CI remains headless-only (`./scripts/run_verification.sh ci`).
+
+Details: [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md) § Push gate; agent rule in [.cursorrules](.cursorrules).
+
 ## Resume after a long break
 
 1. `git checkout wip_phase2 && git pull --rebase origin wip_phase2`

@@ -1,7 +1,7 @@
 # Plan recovery audit (headless)
 
-- Trials: **48** (seed=0)
-- Plan OK: **48**
+- Trials: **12** (seed=0)
+- Plan OK: **12**
 - Plan FAIL: **0**
 - FAIL with **no via** attempt: **0**
 - Total via1 attempts: **0**

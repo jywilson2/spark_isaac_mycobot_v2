@@ -135,6 +135,8 @@ Use **`./scripts/run_verification.sh`** so CI and host GUI paths stay distinct:
 | `ci` | Remote PR / CI | `pytest`; optional headless Isaac (`--with-isaac`) — **never GUI** |
 | `spark` | DGX Spark + Isaac Sim | CI suite, then **required** `--gui` smoke |
 
+**Push gate (Spark):** do not push to the remote until `./scripts/run_verification.sh spark` (including GUI) has passed. See [STATUS.md](STATUS.md) § Push-to-remote gate.
+
 Policy lives in [spec.md](spec.md) Acceptance #7; agent enforcement in [.cursorrules](.cursorrules).
 
 - **Container** = Isaac ROS / Cursor Docker shell (often entered via `isaac-ros activate`). Good for NumPy / pytest / ROS; typically **no** Isaac Sim Kit.

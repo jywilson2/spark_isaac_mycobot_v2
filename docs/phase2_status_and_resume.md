@@ -120,6 +120,16 @@ PYTHONPATH=src:. python3 -m pytest tests -q
 
 Preflight refuses orphan `run_ik_viz.py` / Kit processes. Headless metrics → cuRobo + recovery audit → GUI smoke.
 
+### Push gate (required before `git push`)
+
+On Spark, **never push** until GUI smoke has passed for the change set:
+
+```bash
+./scripts/run_verification.sh spark   # includes required GUI
+```
+
+A green NumPy `pytest` alone (or `SPARK_RUN_ISAAC_GUI_SMOKE=0`) is not enough to push. Canonical short form: [STATUS.md](../STATUS.md) § Push-to-remote gate.
+
 ### 5. Interactive GUI
 
 ```bash

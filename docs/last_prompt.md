@@ -1,12 +1,22 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-12 00:27 -07:00
+Commit, rebase, and push, please.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-12 00:26 -07:00
+Always run the GUI test as a condition of pushing to the remote repo. Add this to the appropriate document file.
+## END
+
+# Old prompts:
+
 ## BEGIN: 2026-07-12 00:23 -07:00
 Considering your "worth a look" comment: Would it make sense to generate vias in progressively more distant locations, starting with near locations, getting further out for each retry? If so, implement this and iterate until success.
 
 If all passes, commit with a detailed message, rebase, and push.
 ## END
-
-# Old prompts:
 
 ## BEGIN: 2026-07-12 00:16 -07:00
 When there is a planning failure the next waypoint generated for retry should be far from the current location of the EE. If you agree, then please make a code change to cause this.
