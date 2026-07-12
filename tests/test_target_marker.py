@@ -30,18 +30,27 @@ def test_target_marker_radius_matches_v1():
     assert "TARGET_MARKER_COLOR_GREEN_RGB" in src or "contacted" in src
 
 
-def test_ee_contacts_target_red_until_within_sphere():
-    """Sphere stays 'not contacted' until tip is within contact distance."""
+def test_ee_contacts_target_surface_and_interior():
+    """Green when tip is on/inside the sphere surface (plus small outer tol)."""
+    from isaac_sim.target_marker import TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M
+
     target = np.array([0.20, 0.0, 0.15])
     far = target + np.array([0.05, 0.0, 0.0])
     assert not ee_contacts_target(far, target)
-    # Slightly inside the sphere (exact radius can fail float equality).
-    near = target + np.array([TARGET_MARKER_CONTACT_DISTANCE_M * 0.999, 0.0, 0.0])
-    assert ee_contacts_target(near, target)
-    inside = target + np.array([TARGET_MARKER_CONTACT_DISTANCE_M * 0.5, 0.0, 0.0])
+    # On the surface (radius).
+    on_surface = target + np.array([TARGET_MARKER_RADIUS_M, 0.0, 0.0])
+    assert ee_contacts_target(on_surface, target)
+    inside = target + np.array([TARGET_MARKER_RADIUS_M * 0.5, 0.0, 0.0])
     assert ee_contacts_target(inside, target)
-    just_outside = target + np.array([TARGET_MARKER_CONTACT_DISTANCE_M * 1.001, 0.0, 0.0])
-    assert not ee_contacts_target(just_outside, target)
+    # Just outside radius but within outer tolerance → still contact.
+    just_out = target + np.array(
+        [TARGET_MARKER_RADIUS_M + TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M * 0.5, 0.0, 0.0]
+    )
+    assert ee_contacts_target(just_out, target)
+    beyond = target + np.array(
+        [TARGET_MARKER_RADIUS_M + TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M + 0.001, 0.0, 0.0]
+    )
+    assert not ee_contacts_target(beyond, target)
 
 
 def test_red_and_green_rgb_distinct():

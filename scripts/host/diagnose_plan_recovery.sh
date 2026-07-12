@@ -94,6 +94,8 @@ if len(chosen) < num_trials:
 
 planner = CuRoboMotionPlanner(omit_tip_links=False)
 planner._ensure()
+contact = CuRoboMotionPlanner(omit_tip_links=True)
+contact._ensure()
 q_home = load_home_joint_positions_rad()
 if reset_home_cli is None:
     reset_home = bool(cfg.get("reset_to_home_before_each_trial", False))
@@ -113,8 +115,19 @@ for k, trial in enumerate(chosen):
     q_goal = np.asarray(trial.q_sol, dtype=float).reshape(6)
     marker = np.asarray(trial.target.position_m, dtype=float).reshape(3)
     obs = [SphereObstacle(center_m=marker, radius_m=TARGET_MARKER_RADIUS_M, name="ik_target")]
+    q_hold = [q_start.copy()]
+
+    def _exec(wp, dt, _hold=q_hold):
+        _hold[0] = np.asarray(wp, dtype=float).reshape(-1, 6)[-1].copy()
+
     traj = plan_collision_free_with_recovery(
-        q_start, q_goal, prefer_curobo=True, planner=planner, obstacles=obs
+        q_start,
+        q_goal,
+        prefer_curobo=True,
+        planner=planner,
+        contact_planner=contact,
+        obstacles=obs,
+        execute_waypoints=_exec,
     )
     vias = recovery_via_attempts_in_message(traj.message)
     n_via_total += vias
@@ -128,6 +141,7 @@ for k, trial in enumerate(chosen):
     if traj.ok:
         n_ok += 1
         flag = "OK"
+        q_start = q_hold[0].copy()
     else:
         n_fail += 1
         audit = recovery_audit_plan_fail(
@@ -140,10 +154,10 @@ for k, trial in enumerate(chosen):
             flag = "FAIL_NO_VIA"
         else:
             flag = "FAIL_WITH_VIA"
+        # Path-dependent: keep wherever partial recovery left the arm.
+        q_start = q_hold[0].copy() if not reset_home else q_home.copy()
     reports.append(row)
     print(f"[{k+1}/{len(chosen)}] trial={trial.index} {flag} vias={vias} msg={traj.message[:120]}")
-    if not reset_home:
-        q_start = q_goal.copy()
 
 out = {
     "num_trials": len(chosen),

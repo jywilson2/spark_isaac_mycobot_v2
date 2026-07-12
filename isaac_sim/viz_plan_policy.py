@@ -35,6 +35,27 @@ def may_execute_motion(plan_ok: bool, *, gate_on_failure: bool = True) -> bool:
     return bool(plan_ok)
 
 
+def plan_ok_rate(n_ok: int, n_fail: int) -> float:
+    """Return PLAN_OK fraction in ``[0, 1]`` (0 if no planning trials)."""
+    total = int(n_ok) + int(n_fail)
+    if total <= 0:
+        return 0.0
+    return float(n_ok) / float(total)
+
+
+def meets_min_plan_ok_rate(
+    n_ok: int,
+    n_fail: int,
+    *,
+    min_rate: float,
+) -> bool:
+    """True when planning success rate meets ``min_rate``, or no trials ran."""
+    total = int(n_ok) + int(n_fail)
+    if total <= 0:
+        return True
+    return plan_ok_rate(n_ok, n_fail) + 1e-15 >= float(min_rate)
+
+
 def plan_result_is_executable(traj: Any) -> bool:
     """Return True when a ``PlannedTrajectory``-like object may drive the arm.
 
@@ -59,6 +80,8 @@ def plan_result_is_executable(traj: Any) -> bool:
         return False
     if "rejected_no_numpy_fallback" in msg:
         return False
+    # Recovery may have already executed vias via execute_waypoints; a 1-row
+    # hold at the final joints is still executable.
     return True
 
 

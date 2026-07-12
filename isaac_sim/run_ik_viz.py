@@ -7,9 +7,9 @@ Also runs Phase 2 collision-aware planning (cuRobo / recovery) during animation.
 One run:
   1. Evaluates ``--num-poses`` DLS IK trials (Phase 1 metrics).
   2. Writes JSON + Markdown reports.
-  3. Animates a representative subset; each goal sphere is **red** (pending),
-     **green** on EE tip contact after a successful plan, or **yellow** when
-     path planning fails (no motion). See ``isaac_sim/target_marker.py``.
+  3. Animates a representative subset. The goal sphere relocates only after
+     planning finishes: **red** then EE motion on PLAN_OK; **yellow** (no
+     motion) after recovery timeout/exhaustion. See ``isaac_sim/target_marker.py``.
 
 Run on the **host**:
 
@@ -23,6 +23,7 @@ See ``spec.md`` Phases 1–2. Legacy name: ``run_ik_viz.py``.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -46,6 +47,8 @@ from isaac_sim.target_marker import (  # noqa: E402
 from isaac_sim.viz_plan_policy import (  # noqa: E402
     MarkerVisualState,
     may_execute_motion,
+    meets_min_plan_ok_rate,
+    plan_ok_rate,
     plan_result_is_executable,
 )
 from isaac_sim.urdf_import import (  # noqa: E402
@@ -178,6 +181,14 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Do not reset to home between trials (overrides YAML; useful for "
         "path-dependent recovery testing)",
+    )
+    parser.add_argument(
+        "--min-plan-ok-rate",
+        type=float,
+        default=None,
+        help="Fail viz if PLAN_OK/(OK+FAIL) is below this (default: "
+        "configs/planning/collision.yaml min_plan_ok_rate or "
+        "ISAAC_VIZ_MIN_PLAN_OK_RATE). Use 0 to disable.",
     )
     return parser.parse_args()
 
@@ -533,35 +544,56 @@ def run_viz(args: argparse.Namespace) -> int:
         gate = bool(plan_cfg.get("gate_motion_on_plan_failure", True))
         prefer_curobo = bool(plan_cfg.get("prefer_curobo", True))
         curobo_planner = None
+        curobo_contact_planner = None
         if prefer_curobo and curobo_available():
             try:
-                curobo_planner = CuRoboMotionPlanner(
-                    interpolation_dt_s=float(
-                        plan_cfg.get("curobo_interpolation_dt_s", 0.02)
-                    )
+                dt = float(plan_cfg.get("curobo_interpolation_dt_s", 0.02))
+                curobo_planner = CuRoboMotionPlanner(interpolation_dt_s=dt)
+                # Separate MotionGen without tip/flange spheres for surface contact.
+                curobo_contact_planner = CuRoboMotionPlanner(
+                    interpolation_dt_s=dt, omit_tip_links=True
                 )
-                print("Phase 2 planner: cuRobo MotionGen (CUDA) ready")
+                print(
+                    "Phase 2 planner: cuRobo MotionGen (CUDA) ready "
+                    "(+ contact planner omit_tip_links)"
+                )
             except Exception as exc:  # noqa: BLE001
                 print(f"Phase 2 planner: cuRobo init failed ({exc}); NumPy fallback")
                 curobo_planner = None
+                curobo_contact_planner = None
         else:
             print("Phase 2 planner: NumPy collision-checked lerp (cuRobo unavailable)")
 
         n_plan_ok = 0
         n_plan_fail = 0
+        n_contact_green = 0
         q_home = load_home_joint_positions_rad()
         if args.reset_to_home is None:
             reset_home = bool(plan_cfg.get("reset_to_home_before_each_trial", False))
         else:
             reset_home = bool(args.reset_to_home)
+        # Always start from home once before the trial loop. Per-trial reset is
+        # opt-in only (--reset-to-home / YAML) so path-dependent recovery is the
+        # default under test (GUI smoke must not pass --reset-to-home).
+        _viz_log(
+            f"Phase 2: moving to home once before trials "
+            f"q_home_rad={np.array2string(q_home, precision=3)}"
+        )
+        _move_joints_at_hardware_speed(
+            articulation,
+            q_home,
+            simulation_app,
+            max_speed_rad_s=max_speed,
+        )
         if reset_home:
             _viz_log(
-                f"Phase 2: reset to home before each trial "
-                f"q_home_rad={np.array2string(q_home, precision=3)} "
-                f"(CLI/YAML)"
+                "Phase 2: ALSO reset to home before each trial "
+                "(CLI/YAML; not used by default GUI smoke)"
             )
         else:
-            _viz_log("Phase 2: home reset off (path-dependent starts)")
+            _viz_log(
+                "Phase 2: no per-trial home reset (path-dependent recovery testing)"
+            )
         for i, trial in enumerate(to_show):
             status = "OK" if trial.success else f"FAIL({trial.reason})"
             print(
@@ -571,9 +603,15 @@ def run_viz(args: argparse.Namespace) -> int:
                 f"{trial.target.position_m[1]:.3f},"
                 f"{trial.target.position_m[2]:.3f})"
             )
+            if not trial.success:
+                continue
+
             target_xyz = np.asarray(trial.target.position_m, dtype=float).reshape(3)
-            _set_target_marker(stage, target_xyz, state=MarkerVisualState.PENDING)
             contacted = False
+            # Do **not** move the visual marker before planning. The sphere only
+            # relocates when: (1) PLAN_OK — red, then EE moves; or (2) planning
+            # fails after recovery timeout/exhaustion — yellow. That avoids the
+            # confusing "target teleports, arm frozen" sequence.
 
             if reset_home:
                 # Independent episode: return to home before planning so the
@@ -597,15 +635,50 @@ def run_viz(args: argparse.Namespace) -> int:
                 radius_m=float(TARGET_MARKER_RADIUS_M),
                 name="ik_target",
             )
+            marker_committed = False
+            contacted = False
+
+            def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
+                nonlocal contacted
+                if contacted:
+                    return
+                ee = forward_kinematics(q_rad).position_m
+                if ee_contacts_target(ee, _tgt):
+                    contacted = True
+                    _set_target_marker_color(stage, state=MarkerVisualState.CONTACT)
+                    _viz_log("  MARKER_CONTACT: tip on sphere surface → green")
+
+            def _execute_waypoints(waypoints_rad: np.ndarray, dt_s: float) -> None:
+                """Move the EE during recovery (via1 / direct); commit red marker."""
+                nonlocal marker_committed
+                if not marker_committed:
+                    # First committed motion toward this goal — show red target.
+                    _set_target_marker(
+                        stage, target_xyz, state=MarkerVisualState.PENDING
+                    )
+                    marker_committed = True
+                    _viz_log("  MARKER_COMMIT: red target (EE recovery motion starts)")
+                _follow_trajectory(
+                    articulation,
+                    waypoints_rad,
+                    simulation_app,
+                    dt_s=float(dt_s),
+                    max_speed_rad_s=max_speed,
+                    on_step=_on_step,
+                )
+
             traj = plan_collision_free_with_recovery(
                 q_now,
                 trial.q_sol,
                 prefer_curobo=prefer_curobo,
                 # Volumetric target: fitted EE/arm spheres must not intersect it.
                 # Tip plans to marker surface; tip contact (red→green) stays valid.
-                # On fail: standoff via-waypoints until plan_recovery_timeout_s.
+                # Recovery loops until plan_recovery_timeout_s; executes via1
+                # partials so the EE moves instead of freezing until full success.
                 obstacles=[target_obstacle],
                 planner=curobo_planner,
+                contact_planner=curobo_contact_planner,
+                execute_waypoints=_execute_waypoints,
             )
             # Defense in depth: refuse historical ok_fallback|plan_failed successes.
             executable = may_execute_motion(
@@ -613,17 +686,24 @@ def run_viz(args: argparse.Namespace) -> int:
             )
             if executable:
                 n_plan_ok += 1
+                if not marker_committed:
+                    # Full plan returned without mid-recovery exec (rare).
+                    _set_target_marker(
+                        stage, target_xyz, state=MarkerVisualState.PENDING
+                    )
+                    marker_committed = True
                 _viz_log(
                     f"  PLAN_OK backend={traj.backend} T={traj.waypoints_rad.shape[0]} "
                     f"dt_s={traj.dt_s:.4f} msg={traj.message}"
                 )
             else:
                 n_plan_fail += 1
-                _set_target_marker_color(stage, state=MarkerVisualState.PLAN_FAIL)
+                # Yellow only after the recovery timeout budget is exhausted.
+                _set_target_marker(stage, target_xyz, state=MarkerVisualState.PLAN_FAIL)
                 vias = recovery_via_attempts_in_message(traj.message)
                 _viz_log(
                     f"  PLAN_FAIL backend={traj.backend} via_attempts={vias} "
-                    f"msg={traj.message} (gate={gate}; marker=yellow)",
+                    f"msg={traj.message} (gate={gate}; marker=yellow after timeout)",
                     level="warn",
                 )
                 if vias < 1:
@@ -634,8 +714,8 @@ def run_viz(args: argparse.Namespace) -> int:
                     )
                 else:
                     _viz_log(
-                        f"  RECOVERY: tried {vias} via standoff(s); all failed "
-                        "(arm stays put until a full plan succeeds)",
+                        f"  RECOVERY: tried {vias} via standoff(s); timeout exhausted "
+                        "(yellow only after plan_recovery_timeout_s)",
                         level="warn",
                     )
                 # Freeze current pose: clear any prior PD targets so the arm
@@ -653,23 +733,27 @@ def run_viz(args: argparse.Namespace) -> int:
                     break
                 continue
 
-            def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
-                nonlocal contacted
-                if contacted:
-                    return
-                ee = forward_kinematics(q_rad).position_m
-                if ee_contacts_target(ee, _tgt):
-                    contacted = True
-                    _set_target_marker_color(stage, state=MarkerVisualState.CONTACT)
-
-            _follow_trajectory(
-                articulation,
-                traj.waypoints_rad,
-                simulation_app,
-                dt_s=traj.dt_s,
-                max_speed_rad_s=max_speed,
-                on_step=_on_step,
-            )
+            # Remaining waypoints (hold row if already_executed during recovery).
+            if (
+                traj.waypoints_rad is not None
+                and int(getattr(traj.waypoints_rad, "size", 0)) > 0
+                and "already_executed" not in str(traj.message)
+            ):
+                _follow_trajectory(
+                    articulation,
+                    traj.waypoints_rad,
+                    simulation_app,
+                    dt_s=traj.dt_s,
+                    max_speed_rad_s=max_speed,
+                    on_step=_on_step,
+                )
+            elif "already_executed" in str(traj.message):
+                # Nudge one servo step so contact/hold still samples FK.
+                try:
+                    q_hold = _get_joint_positions(articulation)
+                    _on_step(q_hold)
+                except Exception:
+                    pass
             t_end = time.monotonic() + max(0.05, float(args.hold_s))
             while time.monotonic() < t_end and simulation_app.is_running():
                 if not contacted:
@@ -679,19 +763,47 @@ def run_viz(args: argparse.Namespace) -> int:
                     except Exception:
                         pass
                 simulation_app.update()
+            if contacted:
+                n_contact_green += 1
+            else:
+                _viz_log(
+                    "  MARKER_NO_CONTACT: PLAN_OK but tip never reached sphere "
+                    "surface (stayed red)",
+                    level="warn",
+                )
             if not simulation_app.is_running():
                 break
 
         metrics["phase2_plan_ok"] = n_plan_ok
         metrics["phase2_plan_fail"] = n_plan_fail
+        metrics["phase2_marker_contact_green"] = n_contact_green
         metrics["phase2_backend"] = (
             "curobo" if curobo_planner is not None else "numpy_lerp"
         )
+        rate = plan_ok_rate(n_plan_ok, n_plan_fail)
+        metrics["phase2_plan_ok_rate"] = rate
+        # Resolve min rate: CLI > env > YAML (0 disables the gate).
+        if args.min_plan_ok_rate is not None:
+            min_rate = float(args.min_plan_ok_rate)
+        elif os.environ.get("ISAAC_VIZ_MIN_PLAN_OK_RATE", "").strip() != "":
+            min_rate = float(os.environ["ISAAC_VIZ_MIN_PLAN_OK_RATE"])
+        else:
+            min_rate = float(plan_cfg.get("min_plan_ok_rate", 0.25))
+        metrics["phase2_min_plan_ok_rate"] = min_rate
         write_json(json_out, metrics)
         print(
             f"Phase 2 planning summary: ok={n_plan_ok} fail={n_plan_fail} "
+            f"rate={rate:.3f} min_required={min_rate:.3f} "
+            f"marker_green={n_contact_green} "
             f"backend={metrics['phase2_backend']}"
         )
+        gate_ok = meets_min_plan_ok_rate(n_plan_ok, n_plan_fail, min_rate=min_rate)
+        if not gate_ok:
+            _viz_log(
+                f"Phase 2 PLAN_OK rate gate FAILED: {rate:.3f} < {min_rate:.3f} "
+                f"({n_plan_ok} ok / {n_plan_ok + n_plan_fail} planned)",
+                level="error",
+            )
 
         print("Phase 1 metrics + visualization complete. Close Isaac Sim or Ctrl+C.")
         if not args.headless and not args.auto_exit:
@@ -699,7 +811,7 @@ def run_viz(args: argparse.Namespace) -> int:
                 simulation_app.update()
         elif not args.headless and args.auto_exit:
             print("NOTE: --auto-exit set; closing Kit after visualization (agent/GUI smoke).")
-        return 0
+        return 0 if gate_ok else 2
     finally:
         simulation_app.close()
 

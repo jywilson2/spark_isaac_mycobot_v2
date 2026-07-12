@@ -259,9 +259,10 @@ def tip_on_sphere_surface(
     """Return a tip position on the near surface of a sphere obstacle (meters).
 
     Standoff = ``sphere_radius_m + margin_m`` along the approach from
-    ``tip_start_m`` toward ``sphere_center_m``. Keeps fitted EE/flange spheres
-    outside the marker volume while still allowing red→green tip contact once
-    the tip reaches the surface (distance ≤ marker radius).
+    ``tip_start_m`` toward ``sphere_center_m``. With ``margin_m=0`` (contact
+    planner / omit tip spheres), the tip lands on the surface so viz can turn
+    the marker green. With a positive margin, flange spheres stay outside while
+    proximal links still cannot sweep through the volume.
     """
     start = np.asarray(tip_start_m, dtype=float).reshape(3)
     center = np.asarray(sphere_center_m, dtype=float).reshape(3)
@@ -473,8 +474,14 @@ class CuRoboMotionPlanner:
                 ) < 1e-4:
                     marker = candidate
                     break
+            # With tip spheres omitted, plan onto the surface (margin≈0) so the
+            # tip can make red→green contact. Otherwise keep a standoff margin.
+            margin = 0.0 if self._omit_tip_links else 0.008
             tip_plan = tip_on_sphere_surface(
-                tip_start, marker.center_m, float(marker.radius_m)
+                tip_start,
+                marker.center_m,
+                float(marker.radius_m),
+                margin_m=margin,
             )
         return self.plan_to_pose(
             q_start_rad,

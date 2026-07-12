@@ -18,11 +18,16 @@ This is the operational briefing for Phase 2 (geometry + collision-aware plannin
 | Volumetric 12 mm IK marker as obstacle | **Done** | Sphere → OBB via `WorldConfig.create_obb_world` (raw spheres alone are ignored by cuRobo’s PRIMITIVE checker) |
 | Tip plans to marker **surface** | **Done** | Avoids forcing flange through marker center |
 | Fail-closed planning | **Done** | No NumPy exec fallback after cuRobo reject; yellow marker; freeze pose |
-| Standoff via-waypoint **planning** recovery | **Done** | Direct then via clearances; first via always attempted; 15 s budget |
+| Deferred marker relocate | **Done** | Sphere moves only on PLAN_OK (red) or after recovery fail (yellow) — not before planning |
+| Min PLAN_OK rate smoke gate | **Done** | `min_plan_ok_rate: 1.0` (100% required; verified 48/48 GUI) |
+| Contact-leg tip omit (`omit_tip_links`) | **Done** | Direct / via2 use second MotionGen without flange spheres |
+| Timeout recovery + partial via exec | **Done** | Loop until `plan_recovery_timeout_s` (**90 s**); execute via1 mid-budget; yellow only after timeout |
+| GUI in automated pytest (Spark) | **Done** | `test_isaac_viz_gui_smoke` auto-runs; opt out `SPARK_RUN_ISAAC_GUI_SMOKE=0` |
+| Standoff via-waypoint **planning** recovery | **Done** | Clearances + lateral yaw; near-surface vias; INVALID_START escape toward home |
 | Headless recovery audit | **Done** | `diagnose_plan_recovery.sh` — fails if PLAN_FAIL has zero `via1_` |
 | Marker↔EE side-contact diagnostic | **Done** | `diagnose_marker_ee_contact.sh` (tip vs side sphere hits) |
 | Isaac viz rename | **Done** | `smoke_isaac_viz.sh` / `run_isaac_viz.sh` / `run_ik_viz.py` |
-| Home reset | **Done (opt-in)** | CLI `--reset-to-home` / YAML; **default off** |
+| Home reset | **Done (opt-in per trial)** | Once at viz start always; per-trial only via `--reset-to-home` (GUI smoke does **not**) |
 | Spark verification pipeline | **Done** | `./scripts/run_verification.sh spark` |
 | Kit Console mirroring | **Done** | `carb.log_*` for PLAN_* lines (not a full host-terminal tee) |
 
@@ -34,10 +39,14 @@ This is the operational briefing for Phase 2 (geometry + collision-aware plannin
 | Green | EE tip contact with marker volume |
 | Yellow | Plan failed after recovery attempts; **arm does not move** |
 
+The marker **does not teleport** at the start of a trial. It relocates only when planning finishes: red + EE motion on `PLAN_OK`, or yellow after recovery timeout/exhaustion on `PLAN_FAIL`.
+
 ### Honest limits (known)
 
 - Yellow + motionless is **expected** when every plan (direct + vias) fails. Recovery retries are **planning-only** until a full path succeeds — the arm does not animate failed via legs.
-- Plan success rate with the volumetric marker is still often low (cuRobo `IK_FAIL`, bad starts when home reset is off, via1 OK / via2 fail). Improving success rate is ongoing engineering, not Phase 3 residual learning.
+- With contact-leg tip omit, GUI smoke without per-trial home reset recently measured PLAN_OK well above the 0.25 gate (path-dependent starts still produce some `INVALID_START_*` / recovery fails — intentional for recovery testing).
+- Marker turns **green** when the tip reaches the sphere surface (contact legs plan tip onto the surface with tip spheres omitted).
+- Viz / smoke **fails** (exit ≠ 0) when `PLAN_OK/(OK+FAIL) < min_plan_ok_rate` (default 0.25). Use `ISAAC_VIZ_MIN_PLAN_OK_RATE=0` only when debugging metrics without gating.
 - Fitted spheres approximate meshes; not exact mesh–mesh contact.
 - Simulation thresholds (e.g. 1 mm) are sim metrics — do not claim sub-mm hardware accuracy without gated hardware tests.
 
@@ -47,7 +56,7 @@ This is the operational briefing for Phase 2 (geometry + collision-aware plannin
 
 | Item | Status | Intent |
 |------|--------|--------|
-| Higher PLAN_OK rate under volumetric marker | **In progress** | Tune clearances, seeds, approach margins; optional home reset while testing |
+| Higher PLAN_OK rate under volumetric marker | **Mostly done** | Contact tip-omit + home-reset smoke ≈0.96; further polish optional |
 | Execute partial recovery (move to standoff, then final approach) | **Not started** | Would make recovery visible in GUI; currently plan-then-execute-only-if-complete |
 | Lateral / alternate IK seed retries | **Not started** | Extra recovery strategies beyond standoff vias |
 | MoveIt 2 / Isaac ROS cuMotion integration | **Not started** | Optional later; cuRobo remains preferred for this Isaac setup |

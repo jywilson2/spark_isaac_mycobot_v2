@@ -167,7 +167,7 @@ Phase 1 host runs (`run_isaac_viz.sh` / `smoke_isaac_viz.sh`) print many Kit lin
 
 If a **new** warning appears that names this repo’s prims, URDF, or Python modules, treat it as a bug: fix the asset/script, do not filter the log.
 
-**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan fail: timed **standoff via-waypoint** recovery (`plan_recovery_*`), then fail-closed (yellow, no motion). Home reset is **opt-in** (`reset_to_home_before_each_trial: false` by default). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
+**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan OK the tip approaches the **surface** and the sphere turns **green** on contact. On plan fail: timed **standoff via-waypoint** recovery, then fail-closed (yellow, no motion). Home is applied **once** at viz start; per-trial `--reset-to-home` is opt-in only (not used by default GUI smoke). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
 
 **Kit Console vs host terminal:** `print` goes to the host shell. Plan status lines are also mirrored with `carb.log_*` so they appear under Isaac Sim **Window → Console** (set the filter to Info/Verbose). That is not a live tee of the entire host terminal — only messages the viz process logs.
 
@@ -229,8 +229,9 @@ export PYTHONPATH=src:.
 pytest tests -q
 ```
 
-Runs the full unit suite (FK, DLS IK, validation, URDF prep helpers, contracts). No hardware; no Isaac Sim.  
-**Typical use:** after any kinematics or config change; CI equivalent locally.
+Runs the full unit suite (FK, DLS IK, validation, URDF prep helpers, contracts). No hardware.  
+On a **Spark / Isaac ROS container** host, also auto-runs the **GUI Isaac viz smoke** (`test_isaac_viz_gui_smoke`, ~3 min). Opt out: `SPARK_RUN_ISAAC_GUI_SMOKE=0`. Remote CI stays headless-only.  
+**Typical use:** after any kinematics, planning, or config change; local Spark TDD default.
 
 If a host shell shows `OSError: The temporary directory /tmp/pytest-of-<user> is not owned...`, a prior root/container run created that directory. `tests/conftest.py` scopes basetemp to `/tmp/pytest-uid-<uid>/` automatically. One-time cleanup if needed:
 
@@ -332,9 +333,11 @@ Host Isaac Sim URDF→USD conversion only (no metrics animation). Writes prepare
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
 ```
 
-Short Phase 1 metrics + articulation animation smoke for TDD / CI-like verification. Default is **headless** Kit (CI / remote PR gate). Env knobs: `ISAAC_VIZ_SMOKE_N_POSES`, `ISAAC_VIZ_SMOKE_VISUALIZE`, `ISAAC_VIZ_SMOKE_HOLD_S`, `ISAAC_VIZ_SMOKE_RESET_TO_HOME`.
+Short Phase 1 metrics + Phase 2 planning smoke for TDD / CI-like verification. Default is **headless** Kit (CI / remote PR gate). Env knobs: `ISAAC_VIZ_SMOKE_N_POSES`, `ISAAC_VIZ_SMOKE_VISUALIZE`, `ISAAC_VIZ_SMOKE_HOLD_S`, `ISAAC_VIZ_SMOKE_RESET_TO_HOME`, `ISAAC_VIZ_MIN_PLAN_OK_RATE` (fail if PLAN_OK rate is below threshold; YAML default `0.25`).
 
-Home reset (opt-in; YAML default off):
+The IK target sphere relocates only after planning finishes (red on `PLAN_OK`, yellow after recovery fail) — not at the start of each trial.
+
+Home reset **per trial** (opt-in; YAML/default GUI smoke off — recovery is tested path-dependently). Viz always moves to home **once** before the first trial:
 
 ```bash
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
@@ -350,11 +353,17 @@ ISAAC_VIZ_SMOKE_RESET_TO_HOME=1 ./scripts/host/spark_host_exec.sh ./scripts/host
 
 Uses nsenter + `runuser` as `SPARK_HOST_USER` and `--auto-exit`. After changing `configs/robot/joint_drives.yaml`, re-import (do not pass `--keep-prepared`) so USD regenerates.
 
-Gated pytest (skips unless enabled; headless):
+Gated / auto pytest Isaac smokes:
 
 ```bash
-SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_isaac_viz_smoke.py -q
-# From container, the test delegates via spark_host_exec automatically.
+# Full suite on Spark (includes GUI smoke by default):
+pytest tests -q
+
+# Headless Kit only (explicit gate):
+SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_isaac_viz_smoke.py::test_isaac_viz_host_smoke -q
+
+# Opt out of auto GUI (e.g. while iterating NumPy-only):
+SPARK_RUN_ISAAC_GUI_SMOKE=0 pytest tests -q
 ```
 
 #### `./scripts/host/spark_host_exec.sh`

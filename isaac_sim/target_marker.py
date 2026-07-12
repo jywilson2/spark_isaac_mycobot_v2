@@ -5,7 +5,7 @@ Phase 1–2 viz places a sphere of radius ``TARGET_MARKER_RADIUS_M`` at each IK
 goal:
 
 * **red** — pending approach (plan OK, tip not in contact yet)
-* **green** — EE tip within ``TARGET_MARKER_CONTACT_DISTANCE_M`` of the center
+* **green** — EE tip on/inside the sphere surface (within radius + small outer tol)
 * **yellow** — path planning failed; arm must not move (fail closed)
 
 Phase 2 planning treats the same radius as a **volumetric** obstacle: fitted
@@ -34,8 +34,10 @@ TARGET_MARKER_EMISSIVE_YELLOW_RGB = (0.40, 0.35, 0.04)
 TARGET_MARKER_COLOR_RGB = TARGET_MARKER_COLOR_RED_RGB
 TARGET_MARKER_EMISSIVE_RGB = TARGET_MARKER_EMISSIVE_RED_RGB
 
-# Tip-to-center distance ≤ sphere radius ⇒ tip inside or on the marker volume.
+# Tip-to-center distance ≤ sphere radius ⇒ tip on or inside the marker surface.
 TARGET_MARKER_CONTACT_DISTANCE_M = TARGET_MARKER_RADIUS_M
+# Allow a thin outer shell so sim lag / servo error still counts as surface contact.
+TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M = 0.003
 
 
 def marker_rgb_for_state(
@@ -54,11 +56,16 @@ def ee_contacts_target(
     target_position_m: np.ndarray,
     *,
     contact_distance_m: float = TARGET_MARKER_CONTACT_DISTANCE_M,
+    outer_tol_m: float = TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M,
 ) -> bool:
-    """Return True when EE tip is within ``contact_distance_m`` of the target.
+    """Return True when EE tip contacts the marker surface (or is inside).
 
-    Units: meters. Used to switch the viz sphere from red → green on success.
+    Units: meters. Green when tip-to-center distance is ≤ ``contact_distance_m``
+    (sphere radius) plus a small ``outer_tol_m`` for simulation lag. Phase 2
+    contact legs plan the tip onto the surface; this switches red → green.
     """
     ee = np.asarray(ee_position_m, dtype=float).reshape(3)
     tgt = np.asarray(target_position_m, dtype=float).reshape(3)
-    return float(np.linalg.norm(ee - tgt)) <= float(contact_distance_m)
+    return float(np.linalg.norm(ee - tgt)) <= float(contact_distance_m) + float(
+        outer_tol_m
+    )

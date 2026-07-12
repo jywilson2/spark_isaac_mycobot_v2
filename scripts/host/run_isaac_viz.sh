@@ -127,6 +127,41 @@ if [[ "${exit_code}" -ne 0 ]]; then
   exit "${exit_code}"
 fi
 
+# Kit/python.sh often returns 0 even when run_ik_viz.py raised SystemExit(2).
+# Re-check the PLAN_OK rate gate from metrics JSON written during the session.
+METRICS_JSON="${SPARK_REPO_ROOT}/assets/logs/phase1_baseline_metrics.json"
+if [[ -f "${METRICS_JSON}" ]]; then
+  set +e
+  python3 - "${METRICS_JSON}" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    m = json.load(f)
+n_ok = int(m.get("phase2_plan_ok", 0) or 0)
+n_fail = int(m.get("phase2_plan_fail", 0) or 0)
+total = n_ok + n_fail
+if total <= 0:
+    sys.exit(0)
+rate = float(m.get("phase2_plan_ok_rate", n_ok / total))
+min_rate = float(m.get("phase2_min_plan_ok_rate", 0.0) or 0.0)
+if min_rate > 0.0 and rate + 1e-15 < min_rate:
+    print(
+        f"Phase 2 PLAN_OK rate gate FAILED (post-Kit check): "
+        f"{rate:.3f} < {min_rate:.3f} ({n_ok} ok / {total} planned)",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+sys.exit(0)
+PY
+  gate_rc=$?
+  set -e
+  if [[ "${gate_rc}" -ne 0 ]]; then
+    echo "Isaac viz FAILED (exit ${gate_rc}; Kit exit was 0 but rate gate failed)" >&2
+    spark_host_print_log_tail "${LOG_PATH}" 40
+    exit "${gate_rc}"
+  fi
+fi
+
 echo "Isaac viz host run complete (metrics written during Isaac session)."
 echo "Metrics: ${SPARK_REPO_ROOT}/docs/phase1_baseline.md"
 echo "JSON:    ${SPARK_REPO_ROOT}/assets/logs/phase1_baseline_metrics.json"

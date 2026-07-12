@@ -68,8 +68,14 @@ spark_host_apply_env || exit 1
 N_POSES="${ISAAC_VIZ_SMOKE_N_POSES:-${PHASE1_SMOKE_N_POSES:-240}}"
 N_VIZ="${ISAAC_VIZ_SMOKE_VISUALIZE:-${PHASE1_SMOKE_VISUALIZE:-48}}"
 HOLD="${ISAAC_VIZ_SMOKE_HOLD_S:-${PHASE1_SMOKE_HOLD_S:-0.2}}"
+# Fail smoke when PLAN_OK rate is below threshold (YAML default 0.25).
+# Set ISAAC_VIZ_MIN_PLAN_OK_RATE=0 to disable (metrics-only / debugging).
+MIN_PLAN_OK_RATE="${ISAAC_VIZ_MIN_PLAN_OK_RATE:-}"
 
 ARGS=(--skip-tests -- --num-poses "${N_POSES}" --visualize "${N_VIZ}" --hold-s "${HOLD}")
+if [[ -n "${MIN_PLAN_OK_RATE}" ]]; then
+  ARGS+=(--min-plan-ok-rate "${MIN_PLAN_OK_RATE}")
+fi
 # CLI / env override for home reset (YAML default is false).
 if [[ -z "${RESET_HOME}" ]]; then
   RESET_HOME="${ISAAC_VIZ_SMOKE_RESET_TO_HOME:-${PHASE1_SMOKE_RESET_TO_HOME:-}}"
@@ -102,6 +108,11 @@ ARGS+=("${EXTRA[@]+"${EXTRA[@]}"}")
 echo "=== Isaac viz smoke (host; Phase 1 metrics + Phase 2 planning) ==="
 echo "ISAACSIM_PATH=${ISAACSIM_PATH}"
 echo "GUI=${GUI} n_poses=${N_POSES} visualize=${N_VIZ} (visualize=animate trials, not 'show window')"
+if [[ -n "${MIN_PLAN_OK_RATE}" ]]; then
+  echo "min_plan_ok_rate=${MIN_PLAN_OK_RATE} (ISAAC_VIZ_MIN_PLAN_OK_RATE)"
+else
+  echo "min_plan_ok_rate=(YAML default; override with ISAAC_VIZ_MIN_PLAN_OK_RATE)"
+fi
 
 KEEP_PREP="${ISAAC_VIZ_SMOKE_KEEP_PREPARED:-${PHASE1_SMOKE_KEEP_PREPARED:-0}}"
 if [[ "${KEEP_PREP}" == "1" ]]; then

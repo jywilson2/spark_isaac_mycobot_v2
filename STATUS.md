@@ -18,9 +18,9 @@ Last updated: **2026-07-11**
 
 ## What works vs still developing (Phase 2)
 
-**Works:** NumPy CI geometry; host cuRobo MotionGen; mesh-fitted spheres; volumetric marker (OBB); tip surface approach; fail-closed (yellow, no unsafe lerp); standoff via **planning** recovery + `diagnose_plan_recovery.sh`; marker side-contact diagnostic; `smoke_isaac_viz.sh` / `run_isaac_viz.sh`.
+**Works:** NumPy CI geometry; host cuRobo; volumetric marker; tip-omit contact; timeout recovery with **partial via execution** (EE moves during budget); yellow only after timeout; **100% PLAN_OK** gate (`min_plan_ok_rate: 1.0`, timeout **90 s**); GUI auto in pytest; home once at viz start.
 
-**Still developing:** higher PLAN_OK rate; optional execute-to-standoff when via1 OK / via2 fails; lateral/IK-seed retries; MoveIt/cuMotion; merge to `main`.
+**Still developing:** optional polish on rare missed green; MoveIt/cuMotion; merge to `main`.
 
 Full table + **resume-after-hiatus steps:** [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md).
 
@@ -34,7 +34,9 @@ Full table + **resume-after-hiatus steps:** [docs/phase2_status_and_resume.md](d
 | Phase 2 cuRobo MotionGen + host smoke | Done |
 | Volumetric marker + OBB + fail-closed | Done |
 | Via planning recovery + headless audit | Done |
-| PLAN_OK rate / partial recovery motion | In progress |
+| Deferred marker + min PLAN_OK rate gate | Done |
+| Contact tip-omit + GUI pytest (Spark) | Done |
+| PLAN_OK rate / partial recovery motion | Mostly done (rate gate green with home reset); partial-exec polish optional |
 | Phase 3 / 4 / hardware | Not started |
 
 ## GUI command (watch collision-free arm motion)
@@ -45,11 +47,11 @@ git checkout wip_phase2
 export ISAACSIM_PATH="${ISAACSIM_PATH:-$HOME/isaacsim}"
 # one-time: ./scripts/host/install_curobo.sh
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
-# optional independent starts:
+# optional independent starts (not default GUI smoke):
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
 ```
 
-Look for `Phase 2 planner: cuRobo MotionGen`, `PLAN_OK` / `PLAN_FAIL` with `via_attempts=N`, marker red→green or yellow.
+Look for `Phase 2 planner: cuRobo MotionGen`, `PLAN_OK` / `PLAN_FAIL` with `via_attempts=N`, marker red→**green** on tip surface contact or yellow on fail. GUI smoke resets home **once** at start only (no per-trial `--reset-to-home`).
 
 ## Resume after a long break
 

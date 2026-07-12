@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from isaac_sim.target_marker import (
     TARGET_MARKER_COLOR_YELLOW_RGB,
@@ -13,6 +14,8 @@ from isaac_sim.target_marker import (
 from isaac_sim.viz_plan_policy import (
     MarkerVisualState,
     may_execute_motion,
+    meets_min_plan_ok_rate,
+    plan_ok_rate,
     plan_result_is_executable,
     resolve_marker_visual_state,
 )
@@ -125,6 +128,15 @@ def test_marker_yellow_when_plan_fails():
     )
 
 
+def test_plan_ok_rate_helpers():
+    assert plan_ok_rate(0, 0) == 0.0
+    assert plan_ok_rate(2, 46) == pytest.approx(2 / 48)
+    assert meets_min_plan_ok_rate(0, 0, min_rate=0.25) is True
+    assert meets_min_plan_ok_rate(2, 46, min_rate=0.25) is False
+    assert meets_min_plan_ok_rate(12, 36, min_rate=0.25) is True
+    assert meets_min_plan_ok_rate(2, 46, min_rate=0.0) is True
+
+
 def test_viz_script_uses_fail_closed_policy_and_yellow_marker():
     """Source contract: viz must gate on plan_result_is_executable + yellow."""
     src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
@@ -133,5 +145,26 @@ def test_viz_script_uses_fail_closed_policy_and_yellow_marker():
     assert "MarkerVisualState.PLAN_FAIL" in src
     assert "GATED_NO_MOTION" in src
     assert "_viz_log" in src
+    assert "meets_min_plan_ok_rate" in src
+    assert "--min-plan-ok-rate" in src
     # Must not reintroduce ungated IK lerp to trial.q_sol after plan failure.
     assert "_move_joints_at_hardware_speed(\n                    articulation,\n                    trial.q_sol" not in src
+
+
+def test_viz_defers_marker_until_plan_outcome():
+    """Target sphere must not relocate before planning finishes.
+
+    On PLAN_FAIL the marker may move (yellow) only after recovery timeout;
+    on PLAN_OK it moves (red) then the EE follows.
+    """
+    src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
+    # The pre-plan relocate pattern must stay gone.
+    assert (
+        "target_xyz = np.asarray(trial.target.position_m, dtype=float).reshape(3)\n"
+        "            _set_target_marker(stage, target_xyz, state=MarkerVisualState.PENDING)"
+        not in src
+    )
+    # Relocate only when EE motion starts (MARKER_COMMIT) or after timeout (yellow).
+    assert "MARKER_COMMIT" in src
+    assert "Allowed marker move: planning failed after recovery budget" in src or \
+        "marker=yellow after timeout" in src

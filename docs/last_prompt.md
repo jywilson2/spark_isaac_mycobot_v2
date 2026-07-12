@@ -1,5 +1,56 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-12 00:08 -07:00
+When planning fails I frequently see the EE remain motionless with the target immediately teleporting.
+
+Planning failure should only occur after a certain time period with repeated attempts to move the EE to a new position.
+
+Iterate until planning always succeeds (100% passsing). Feel free to increase the timeout period if necessary.
+
+When planning tests pass as described above, report the timeout values required in the summary of changes.
+
+When finished with the changes, commit, rebase, and push to the remote repo.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 23:59 -07:00
+It seems that the first agent is hung waiting for IsaacSim to complete.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 23:38 -07:00
+When contact is made with the surface of the sphere, make the sphere turn green.
+
+GUI should not use --reset-to-home option. Planning recovery is more extensively tested without using this option. Resetting to home should only occur before testing begins, but not after each test.
+
+Iterate until all tests pass.
+## END
+
+
+## BEGIN: 2026-07-11 23:22 -07:00
+Add the execution of the GUI test to the automated tests, at least for now since all development now occurs on a Spark host.
+
+Iterate until all tests pass.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 23:13 -07:00
+Run the GUI test.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 23:11 -07:00
+Yes, please add that.
+
+Also, I noticed in the GUI test when planning failes the target moves instead of the EE. The target should never move unless planning failes after a timeout.
+## END
+
+# Old prompts:
+
 ## BEGIN: 2026-07-11 23:05 -07:00
 Document what works and what is still in development for phase 2. Also document the steps to resume development after a long haitus.
 

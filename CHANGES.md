@@ -1,5 +1,15 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Hung Isaac wait diagnosis (2026-07-11 23:59)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `docs/last_prompt.md` | **Updated** | Logged hung-agent inquiry |
+
+**Finding:** Kit already exited (`Simulation App Shutting Down` at 23:58). No live `kit` / `python.sh` process. Latest GUI metrics: PLAN_OK **38/48 (0.792)** vs `min_plan_ok_rate: 1.0` → gate **FAILED**. Safe to stop/restart the waiting agent UI.
+
+---
+
 Review list of everything created or copied into `spark_isaac_mycobot_v2` during the initial fork bootstrap.
 
 ## Top-level documents

@@ -14,6 +14,8 @@ On the Spark host, a **cuRobo reject is final** (`fallback_numpy_after_curobo_fa
 
 The red/green marker is a **12 mm sphere with volume**, not a point. Planning keeps mesh-fitted EE/arm collision spheres from intersecting that volume (even when the sphere *center* clears the EE surface). Tip plans to the marker **surface**; tip contact can still turn the marker green.
 
+In Isaac viz the marker relocates only after planning finishes (red on `PLAN_OK`, yellow after recovery fail) — not at trial start. Smoke fails when `PLAN_OK` rate is below `min_plan_ok_rate` (default 0.25). Final surface approaches use a second cuRobo MotionGen with tip/flange spheres omitted so the tip may sit on the marker without `IK_FAIL`.
+
 ## What shipped
 
 | Component | Path | Role |

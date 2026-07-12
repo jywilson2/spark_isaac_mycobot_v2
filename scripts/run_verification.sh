@@ -120,15 +120,21 @@ run_headless_isaac() {
 run_gui_isaac() {
   echo "=== Spark: GUI Isaac Sim smoke (required after headless) ==="
   # Explicit GUI visualize count (default 48); never inherit headless 0.
+  # Do NOT pass --reset-to-home: home is applied once at viz start; per-trial
+  # reset would hide path-dependent recovery failures.
   local viz="${ISAAC_VIZ_SMOKE_GUI_VISUALIZE:-${PHASE1_SMOKE_GUI_VISUALIZE:-${ISAAC_VIZ_SMOKE_VISUALIZE:-${PHASE1_SMOKE_VISUALIZE:-48}}}}"
-  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz}."
+  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (no per-trial home reset)."
+  local -a gui_env=(
+    "ISAAC_VIZ_SMOKE_VISUALIZE=${viz}"
+    "PHASE1_SMOKE_VISUALIZE=${viz}"
+  )
   if [[ -f /.dockerenv ]]; then
-    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" \
+    env "${gui_env[@]}" \
       bash "${ROOT}/scripts/host/spark_host_exec.sh" \
-      ./scripts/host/smoke_isaac_viz.sh --gui
+      ./scripts/host/smoke_isaac_viz.sh --gui --no-reset-to-home
   else
-    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" \
-      bash "${ROOT}/scripts/host/smoke_isaac_viz.sh" --gui
+    env "${gui_env[@]}" \
+      bash "${ROOT}/scripts/host/smoke_isaac_viz.sh" --gui --no-reset-to-home
   fi
 }
 
@@ -192,6 +198,9 @@ case "${MODE}" in
     echo "# (CI suite, then cuRobo, then required GUI) #"
     echo "############################################"
     spark_preflight
+    # Avoid double GUI: pytest auto-runs GUI on Spark; verification owns the
+    # GUI stage below so headless → cuRobo → GUI stay ordered.
+    export SPARK_RUN_ISAAC_GUI_SMOKE=0
     run_pytest
     export SPARK_RUN_ISAAC_SMOKE=1
     run_headless_isaac

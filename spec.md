@@ -444,7 +444,7 @@ planner replace `q_final = q_ik + clamp(Δq)`.
 3. `validate_solution(..., obstacles=[...])` rejects colliding configurations.
 4. Ground-plane collision is checked (NumPy) and included in the cuRobo world.
 5. Host cuRobo `MotionGen` produces a collision-free trajectory (`smoke_phase2_curobo.sh`).
-6. Isaac viz executes planned trajectories and logs `PLAN_OK` / `PLAN_FAIL`; failed plans are gated.
+6. Isaac viz executes planned trajectories and logs `PLAN_OK` / `PLAN_FAIL`; failed plans are gated (no motion). The IK target marker relocates only after planning finishes (`PLAN_OK` → red then EE motion; `PLAN_FAIL` after recovery → yellow). Viz/smoke fails when `PLAN_OK/(OK+FAIL)` is below `min_plan_ok_rate` (default 0.25; override `--min-plan-ok-rate` / `ISAAC_VIZ_MIN_PLAN_OK_RATE`).
 7. Results summarized in `docs/phase2_geometry.md`.
 8. Tutorial-quality module docstrings (why / units / links to `spec.md`).
 

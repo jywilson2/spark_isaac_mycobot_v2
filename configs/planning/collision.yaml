@@ -37,11 +37,19 @@ reset_to_home_before_each_trial: false
 
 # After a direct plan fails, retry via standoff waypoints until timeout.
 plan_recovery_enabled: true
-# Wall-clock budget for recovery (seconds). Direct attempts are capped separately
-# so a slow IK_FAIL cannot skip all vias.
-plan_recovery_timeout_s: 15.0
+# Wall-clock budget for recovery (seconds). Strategies loop until this elapses;
+# PLAN_FAIL / yellow marker only after the budget is spent (not after one pass).
+plan_recovery_timeout_s: 90.0
 plan_recovery_direct_max_attempts: 2
 plan_recovery_via_max_attempts: 4
 # Tip-to-marker-center clearances (meters) tried as via standoffs (nearest first).
-plan_recovery_standoff_clearances_m: [0.05, 0.08, 0.12]
-plan_recovery_surface_margin_m: 0.008
+plan_recovery_standoff_clearances_m: [0.015, 0.020, 0.025, 0.04, 0.06, 0.08, 0.12, 0.18]
+# Lateral yaw offsets (radians) about +Z through the marker for standoff poses.
+plan_recovery_lateral_yaw_rad: [0.0, 0.4, -0.4, 0.8, -0.8]
+# Tip-to-surface stand-off beyond marker radius (meters) when tip spheres are kept.
+# Contact planner (omit tip) uses margin 0 so the tip can land on the surface.
+plan_recovery_surface_margin_m: 0.015
+
+# Isaac viz / smoke: fail if PLAN_OK / (OK+FAIL) is below this (1.0 = require all).
+# Override with --min-plan-ok-rate or ISAAC_VIZ_MIN_PLAN_OK_RATE.
+min_plan_ok_rate: 1.0
