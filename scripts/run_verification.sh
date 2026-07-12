@@ -106,6 +106,15 @@ run_gui_isaac() {
   fi
 }
 
+run_curobo_smoke() {
+  echo "=== Spark: Phase 2 cuRobo MotionGen smoke ==="
+  if [[ -f /.dockerenv ]]; then
+    bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/smoke_phase2_curobo.sh
+  else
+    bash "${ROOT}/scripts/host/smoke_phase2_curobo.sh"
+  fi
+}
+
 case "${MODE}" in
   ci)
     echo "############################################"
@@ -125,17 +134,18 @@ case "${MODE}" in
   spark)
     echo "############################################"
     echo "# Verification mode: DGX Spark + Isaac Sim #"
-    echo "# (CI suite, then required GUI)            #"
+    echo "# (CI suite, then cuRobo, then required GUI) #"
     echo "############################################"
     run_pytest
     export SPARK_RUN_ISAAC_SMOKE=1
     run_headless_isaac
+    run_curobo_smoke
     if [[ "${SKIP_GUI}" -eq 1 ]]; then
       echo "WARNING: --skip-gui set; Spark verification is INCOMPLETE per Acceptance #7." >&2
       exit 2
     fi
     run_gui_isaac
-    echo "=== Spark verification PASSED (pytest + headless + GUI) ==="
+    echo "=== Spark verification PASSED (pytest + headless + cuRobo + GUI) ==="
     ;;
   *)
     echo "ERROR: unknown mode '${MODE}'" >&2

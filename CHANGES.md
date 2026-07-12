@@ -317,6 +317,22 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 
 ---
 
+## Phase 2 complete: cuRobo collision-free trajectories (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `planning/curobo_planner.py` | **Created/Updated** | MotionGen wrapper, Warp shim, velocity URDF, ground |
+| `configs/planning/curobo_world.yaml` | **Created** | Floor cuboid |
+| `scripts/host/install_curobo.sh` | **Created** | Install cuRobo into Isaac `python.sh` |
+| `scripts/host/smoke_phase2_curobo.sh` | **Created** | Host GPU smoke |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Execute planned traj; gate on failure; lower ground |
+| `scripts/run_verification.sh` | **Updated** | Spark runs cuRobo smoke before GUI |
+| `docs/phase2_geometry.md` / `STATUS.md` / `spec.md` | **Updated** | Phase 2 acceptance complete |
+
+**Review recommended:** Coarse collision spheres; refine with cuRobo sphere fitting if false positives/negatives appear.
+
+---
+
 ## Four-phase renumber + Phase 2 geometry foundation (2026-07-11)
 
 | Path | Action | Notes |

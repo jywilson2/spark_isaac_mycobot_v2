@@ -1,0 +1,9 @@
+# cuRobo world obstacles for Phase 2 (meters, quaternion wxyz).
+# Ground cuboid top surface ≈ z=0 so trajectories cannot dip through the floor
+# (matches Isaac viz GroundPlane top). See spec.md Phase 2.
+
+cuboid:
+  ground:
+    dims: [2.0, 2.0, 0.04]
+    # Top surface at z≈-0.02 m so the MyCobot base clearance is not false-positive.
+    pose: [0.0, 0.0, -0.04, 1.0, 0.0, 0.0, 0.0]

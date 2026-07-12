@@ -66,7 +66,14 @@ from residual_adaptive_ik.kinematics.workspace_sampling import (  # noqa: E402
     load_workspace_config,
 )
 from residual_adaptive_ik.geometry import SphereObstacle  # noqa: E402
-from residual_adaptive_ik.planning import plan_joint_lerp_checked  # noqa: E402
+from residual_adaptive_ik.planning import (  # noqa: E402
+    curobo_available,
+    plan_collision_free,
+)
+from residual_adaptive_ik.planning.curobo_planner import (  # noqa: E402
+    CuRoboMotionPlanner,
+    load_planning_config,
+)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -327,6 +334,50 @@ def _move_joints_at_hardware_speed(
         on_step(q_goal)
 
 
+def _follow_trajectory(
+    articulation,
+    waypoints_rad: np.ndarray,
+    simulation_app,
+    *,
+    dt_s: float,
+    max_speed_rad_s: float,
+    on_step: Callable[[np.ndarray], None] | None = None,
+) -> None:
+    """Play back a joint trajectory, still respecting vendor max joint speed.
+
+    If consecutive waypoints imply speeds above ``max_speed_rad_s``, intermediate
+    lerp samples are inserted (radians / seconds).
+    """
+    wps = np.asarray(waypoints_rad, dtype=float)
+    if wps.ndim != 2 or wps.shape[0] == 0:
+        return
+    speed = max(1e-6, float(max_speed_rad_s))
+    dt = max(1e-4, float(dt_s))
+    for i in range(wps.shape[0]):
+        if not simulation_app.is_running():
+            break
+        q_goal = wps[i]
+        try:
+            q = _get_joint_positions(articulation)
+        except Exception:
+            q = q_goal.copy()
+        while simulation_app.is_running():
+            err = q_goal - q
+            max_err = float(np.max(np.abs(err)))
+            if max_err < 1e-4:
+                break
+            scale = min(1.0, (speed * dt) / max_err)
+            q = q + err * scale
+            _set_joint_positions(articulation, q)
+            if on_step is not None:
+                on_step(q)
+            simulation_app.update()
+        _set_joint_positions(articulation, q_goal)
+        if on_step is not None:
+            on_step(q_goal)
+        simulation_app.update()
+
+
 def _print_metrics_summary(metrics: dict) -> None:
     print(
         f"Phase 1 metrics: success_rate={metrics['success_rate']:.4f} "
@@ -381,7 +432,8 @@ def run_viz(args: argparse.Namespace) -> int:
         ground = UsdGeom.Cube.Define(stage, world_path.AppendPath("GroundPlane"))
         ground.GetSizeAttr().Set(10.0)
         gxf = UsdGeom.Xformable(ground)
-        gxf.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, -0.05))
+        # Top surface ≈ z=-0.02 m (matches configs/planning/curobo_world.yaml).
+        gxf.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, -0.07))
         gxf.AddScaleOp().Set(Gf.Vec3d(10.0, 10.0, 0.01))
 
         dome = UsdLux.DomeLight.Define(stage, world_path.AppendPath("DomeLight"))
@@ -435,6 +487,26 @@ def run_viz(args: argparse.Namespace) -> int:
 
         articulation = _create_articulation(prim_path)
         max_speed = float(workspace.max_joint_speed_rad_s)
+        plan_cfg = load_planning_config()
+        gate = bool(plan_cfg.get("gate_motion_on_plan_failure", True))
+        prefer_curobo = bool(plan_cfg.get("prefer_curobo", True))
+        curobo_planner = None
+        if prefer_curobo and curobo_available():
+            try:
+                curobo_planner = CuRoboMotionPlanner(
+                    interpolation_dt_s=float(
+                        plan_cfg.get("curobo_interpolation_dt_s", 0.02)
+                    )
+                )
+                print("Phase 2 planner: cuRobo MotionGen (CUDA) ready")
+            except Exception as exc:  # noqa: BLE001
+                print(f"Phase 2 planner: cuRobo init failed ({exc}); NumPy fallback")
+                curobo_planner = None
+        else:
+            print("Phase 2 planner: NumPy collision-checked lerp (cuRobo unavailable)")
+
+        n_plan_ok = 0
+        n_plan_fail = 0
         for i, trial in enumerate(to_show):
             status = "OK" if trial.success else f"FAIL({trial.reason})"
             print(
@@ -448,32 +520,34 @@ def run_viz(args: argparse.Namespace) -> int:
             _set_target_marker(stage, target_xyz, contacted=False)
             contacted = False
 
-            # Phase 2: log whether the joint lerp would sweep proximal links
-            # through the goal sphere (NumPy capsules; tip allowed at goal).
             try:
                 q_now = _get_joint_positions(articulation)
             except Exception:
                 q_now = np.asarray(trial.q_sol, dtype=float).reshape(-1)
-            path = plan_joint_lerp_checked(
+
+            traj = plan_collision_free(
                 q_now,
                 trial.q_sol,
-                [
-                    SphereObstacle(
-                        center_m=target_xyz,
-                        radius_m=TARGET_MARKER_RADIUS_M,
-                        name="ik_target",
-                    )
-                ],
-                n_samples=24,
-                ignore_tip_segment=True,
+                prefer_curobo=prefer_curobo,
+                # Goal marker is intentional tip contact — do not treat it as a
+                # blocking obstacle. Ground + self-collision live in cuRobo world.
+                obstacles=[],
+                planner=curobo_planner,
             )
-            if path.collision.collides:
+            if traj.ok:
+                n_plan_ok += 1
                 print(
-                    f"  PATH_COLLISION n_hits={len(path.collision.reasons)} "
-                    f"head={list(path.collision.reasons[:3])}"
+                    f"  PLAN_OK backend={traj.backend} T={traj.waypoints_rad.shape[0]} "
+                    f"dt_s={traj.dt_s:.4f} msg={traj.message}"
                 )
             else:
-                print("  PATH_OK (no proximal link vs target-sphere hits)")
+                n_plan_fail += 1
+                print(
+                    f"  PLAN_FAIL backend={traj.backend} msg={traj.message} "
+                    f"(gate={gate})"
+                )
+                if gate:
+                    continue
 
             def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
                 nonlocal contacted
@@ -484,24 +558,45 @@ def run_viz(args: argparse.Namespace) -> int:
                     contacted = True
                     _set_target_marker_color(stage, contacted=True)
 
-            _move_joints_at_hardware_speed(
-                articulation,
-                trial.q_sol,
-                simulation_app,
-                max_speed_rad_s=max_speed,
-                on_step=_on_step,
-            )
+            if traj.ok:
+                _follow_trajectory(
+                    articulation,
+                    traj.waypoints_rad,
+                    simulation_app,
+                    dt_s=traj.dt_s,
+                    max_speed_rad_s=max_speed,
+                    on_step=_on_step,
+                )
+            else:
+                _move_joints_at_hardware_speed(
+                    articulation,
+                    trial.q_sol,
+                    simulation_app,
+                    max_speed_rad_s=max_speed,
+                    on_step=_on_step,
+                )
             t_end = time.monotonic() + max(0.05, float(args.hold_s))
             while time.monotonic() < t_end and simulation_app.is_running():
                 if not contacted:
                     try:
-                        q_now = _get_joint_positions(articulation)
-                        _on_step(q_now)
+                        q_hold = _get_joint_positions(articulation)
+                        _on_step(q_hold)
                     except Exception:
                         pass
                 simulation_app.update()
             if not simulation_app.is_running():
                 break
+
+        metrics["phase2_plan_ok"] = n_plan_ok
+        metrics["phase2_plan_fail"] = n_plan_fail
+        metrics["phase2_backend"] = (
+            "curobo" if curobo_planner is not None else "numpy_lerp"
+        )
+        write_json(json_out, metrics)
+        print(
+            f"Phase 2 planning summary: ok={n_plan_ok} fail={n_plan_fail} "
+            f"backend={metrics['phase2_backend']}"
+        )
 
         print("Phase 1 metrics + visualization complete. Close Isaac Sim or Ctrl+C.")
         if not args.headless and not args.auto_exit:

@@ -421,28 +421,32 @@ validate (+ geometry) →  accept / fallback / no motion
 | **Isaac Sim PhysX contacts** (optional host) | Isaac Sim runtime | Sim contact queries during Kit runs |
 | **ROS 2 MoveIt 2** (optional hardware later) | BSD / ROS | Deployment planning stack — not the residual brain |
 
-Prefer NumPy for CI. Prefer **cuRobo** over MoveIt for Spark GPU research when
-full trajectory optimization is needed. Prefer MoveIt when the primary consumer
-is a ROS 2 hardware bring-up. Never let a planner replace
-`q_final = q_ik + clamp(Δq)`.
+Prefer NumPy for CI. Prefer **cuRobo** (required host backend for Phase 2
+acceptance on DGX Spark) over MoveIt for GPU research trajectories. Prefer
+MoveIt when the primary consumer is a ROS 2 hardware bring-up. Never let a
+planner replace `q_final = q_ik + clamp(Δq)`.
 
 ## Files
 
 - `src/residual_adaptive_ik/geometry/` — capsules, sphere obstacles, config checks
-- `src/residual_adaptive_ik/planning/` — collision-checked joint lerp
-- `configs/planning/collision.yaml` — radii / sample counts
+- `src/residual_adaptive_ik/planning/` — NumPy lerp + **cuRobo MotionGen**
+- `configs/planning/collision.yaml` — radii / sample counts / gate flags
+- `configs/planning/curobo_world.yaml` — ground cuboid (floor)
 - `scripts/run_phase2_geometry.sh` — CI entry
-- `tests/test_phase2_geometry.py` — contracts
+- `scripts/host/install_curobo.sh` / `smoke_phase2_curobo.sh` — host GPU
+- `tests/test_phase2_geometry.py` / `test_phase2_curobo.py` — contracts
 - `docs/phase2_geometry.md` — report
 
-## Phase 2 Acceptance Criteria (initial)
+## Phase 2 Acceptance Criteria
 
 1. Capsule–sphere intersection tests are unit-tested (meters).
 2. `plan_joint_lerp_checked` samples a joint lerp and reports collisions.
 3. `validate_solution(..., obstacles=[...])` rejects colliding configurations.
-4. Host Isaac viz logs `PATH_OK` / `PATH_COLLISION` per trial (Spark smoke).
-5. Results summarized in `docs/phase2_geometry.md`.
-6. Tutorial-quality module docstrings (why / units / links to `spec.md`).
+4. Ground-plane collision is checked (NumPy) and included in the cuRobo world.
+5. Host cuRobo `MotionGen` produces a collision-free trajectory (`smoke_phase2_curobo.sh`).
+6. Isaac viz executes planned trajectories and logs `PLAN_OK` / `PLAN_FAIL`; failed plans are gated.
+7. Results summarized in `docs/phase2_geometry.md`.
+8. Tutorial-quality module docstrings (why / units / links to `spec.md`).
 
 ---
 

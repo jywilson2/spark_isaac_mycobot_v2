@@ -1,47 +1,40 @@
 # Phase 2 — Geometry + Collision-Aware Planning
 
-**Status:** Foundation landed on branch `wip_phase2` (2026-07-11).  
-**Units:** meters, radians.
+**Status:** Complete on branch `wip_phase2` (2026-07-11).  
+**Units:** meters, radians, seconds.
+
+## Answer: does planning prevent ground collisions?
+
+**Yes**, when the ground is in the collision world. Phase 1 joint lerp had no geometry, so links could sweep through the floor cube. Phase 2 cuRobo `MotionGen` plans with a ground cuboid (`configs/planning/curobo_world.yaml`); trajectories that penetrate the floor are rejected. Failed plans are gated (no naive lerp through the floor) when `gate_motion_on_plan_failure: true`.
 
 ## What shipped
 
 | Component | Path | Role |
 |-----------|------|------|
-| Capsule / sphere primitives | `src/residual_adaptive_ik/geometry/` | Approximate link volumes vs obstacles |
-| Collision-checked joint lerp | `src/residual_adaptive_ik/planning/` | Sample Phase-1-style joint paths |
-| Config | `configs/planning/collision.yaml` | Link radius, sample count |
-| Validation hook | `validate_solution(..., obstacles=)` | Geometry-backed `"collision"` reject |
-| CI entry | `scripts/run_phase2_geometry.sh` | pytest + NumPy path smoke |
-| Host viz logging | `isaac_sim/run_phase1_ik_viz.py` | Prints `PATH_OK` / `PATH_COLLISION` |
-
-## Library choice
-
-Phase 2 CI uses **NumPy-only** capsule–sphere checks so container / GitHub CI stays kit-free.
-
-Open-source NVIDIA / ROS options documented for later enrichment (do not replace residual IK):
-
-- **cuRobo** (Apache-2.0) — preferred GPU trajectory backend on DGX Spark
-- **Isaac Sim PhysX** — contact queries during Kit runs
-- **MoveIt 2** — ROS 2 hardware planning stacks
+| NumPy capsules + ground check | `geometry/`, `planning/joint_path.py` | CI / fallback |
+| **cuRobo MotionGen** | `planning/curobo_planner.py` | GPU collision-free trajectories (Apache-2.0) |
+| Warp 1.15 shim | `_ensure_warp_torch_shim` | Isaac Sim Warp API compat |
+| Velocity-fixed URDF | `assets/urdf/mycobot_280_m5_curobo.urdf` | Vendor URDF had `velocity=0` |
+| World ground | `configs/planning/curobo_world.yaml` | Floor obstacle |
+| Host install / smoke | `scripts/host/install_curobo.sh`, `smoke_phase2_curobo.sh` | Spark GPU |
+| Isaac viz | `isaac_sim/run_phase1_ik_viz.py` | Executes planned traj; `PLAN_OK` / `PLAN_FAIL` |
 
 ## How to run
 
 ```bash
-# CI / container
+# CI (NumPy)
 ./scripts/run_phase2_geometry.sh
 
-# Full verification on Spark (includes Isaac GUI after headless)
+# Host: install once, then smoke
+./scripts/host/spark_host_exec.sh ./scripts/host/install_curobo.sh
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase2_curobo.sh
+
+# Full Spark verification (pytest → headless → cuRobo → GUI)
 ./scripts/run_verification.sh spark
 ```
 
 ## Honest limits
 
-- Capsules are coarse (not mesh-accurate FCL).
-- Path layer is a **checked joint lerp**, not a full RRT/cuRobo planner yet.
-- Viz still executes the lerp for visualization; collision results are logged for metrics and future gating.
-
-## Next Phase 2 milestones
-
-1. Gate motion / reject trials when `PATH_COLLISION` and an alternate IK seed exists.
-2. Optional cuRobo backend behind a feature flag on the host.
-3. Self-collision (non-adjacent capsules).
+- Collision spheres are coarse (not mesh-fitted).
+- cuRobo requires host Isaac `python.sh` + CUDA; CI uses NumPy fallback.
+- Target marker remains visual-only in USD; planning treats it as a sphere obstacle optionally.

@@ -1,5 +1,20 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-11 18:41 -07:00
+I noticed when IsaacSim visualization was running that the arm collided with the ground. Would the trajectory planning prevent this as well?
+
+Complete the implementation of Phase 2 to provide all required features. Use cuRobot for collision free trajectories.
+
+Commit, rebase, and push when successful.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 18:38 -07:00
+Would the use of cuRobo still work with ROS 2 when commanding the physical arm?
+## END
+
+
 ## BEGIN: 2026-07-11 18:27 -07:00
 Update all relevant documentation with the current project status. Indicate which phase is completed and what are next steps.
 
@@ -18,7 +33,6 @@ When you are successful:
 - Provide a command to run the run the IssacSim in GUI mode and see the resulting arm movement.
 ## END
 
-# Old prompts:
 
 ## BEGIN: 2026-07-11 18:13 -07:00
 During the implementation of residual IK will testing on hardware be required in order to process the feedback on motor position when actual position varies from that commanded by the IK?

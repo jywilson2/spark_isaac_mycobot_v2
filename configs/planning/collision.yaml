@@ -1,17 +1,22 @@
 # Phase 2 — geometry + collision-aware joint planning (SI units).
 #
-# CI uses NumPy capsule–sphere checks (no GPU). On DGX Spark, optional later
-# backends: Isaac Sim PhysX contacts and/or NVIDIA cuRobo (Apache-2.0).
-# ROS 2 MoveIt 2 remains an option for hardware deployment stacks.
+# CI uses NumPy capsule–sphere + ground-plane checks (no GPU).
+# Host Spark prefers NVIDIA cuRobo (Apache-2.0) MotionGen when installed
+# via scripts/host/install_curobo.sh into Isaac Sim's python.sh.
 
-# Approximate link radius for serial-chain capsules (meters).
 link_radius_m: 0.025
-
-# Samples along a joint-space lerp (intervals between start and goal).
 path_samples: 24
-
-# When true, tip segment may occupy the goal sphere at the final sample only.
 ignore_tip_segment_at_goal: true
-
-# Wire into validate_solution when callers pass SphereObstacle list / collision.
 enforce_collision_in_validation: true
+
+# Ground plane height in the robot base frame (meters). Capsules whose
+# lowest point (center−radius) is below this are in collision.
+ground_z_m: -0.02
+
+# Prefer cuRobo on host when CUDA is available.
+prefer_curobo: true
+curobo_interpolation_dt_s: 0.02
+curobo_max_attempts: 4
+
+# When planning fails, do not execute naive lerp through obstacles/ground.
+gate_motion_on_plan_failure: true
