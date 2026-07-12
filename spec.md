@@ -387,7 +387,8 @@ visual target marker (or other obstacles) while moving into position:
   intermediate poses are **not** validated against the target sphere (until
   Phase 2 path checks are enabled in the viz logger).
 - The `/World/IkTarget` sphere is **visual-only** (no PhysX collider). Links may
-  sweep through it; “contact” for red→green is geometric EE-tip distance only.
+  sweep through it; “contact” for red→green requires the EE **tip-face center**
+  on the approach pierce point (side grazes are invalid).
 - `validate_solution(..., collision=...)` accepts an **external** boolean hook
   (`True` → reject with reason `"collision"`). Phase 1 never computes geometry.
   **Phase 2** supplies NumPy capsule–sphere checks via `obstacles=` and
@@ -986,7 +987,7 @@ z_bins: 5
 max_joint_speed_deg_s: 160.0  # vendor Joint Maximum Speed
 ```
 
-Total stratified cells = 12 × 4 × 5 = **240** separate workspace bins (denser than the original v1 8×3×4 demo grid). Phase 1 baseline default sampling fills these bins evenly with reachable FK poses. Isaac GUI motion interpolates joint targets at ≤ `max_joint_speed_deg_s`. The IK target sphere stays **red** until EE tip contact (≤ sphere radius), then turns **green**; on path-planning failure it turns **yellow** and the arm does not move (`isaac_sim/target_marker.py`, `isaac_sim/viz_plan_policy.py`).
+Total stratified cells = 12 × 4 × 5 = **240** separate workspace bins (denser than the original v1 8×3×4 demo grid). Phase 1 baseline default sampling fills these bins evenly with reachable FK poses. Isaac GUI motion interpolates joint targets at ≤ `max_joint_speed_deg_s`. The IK target sphere stays **red** until EE **tip-face** contact (middle of the tip pad on the approach pierce; side grazes do not count), then turns **green**; on path-planning failure it turns **yellow** and the arm does not move (`isaac_sim/target_marker.py`, `isaac_sim/viz_plan_policy.py`).
 
 ## `configs/robot/joint_limits.yaml`
 

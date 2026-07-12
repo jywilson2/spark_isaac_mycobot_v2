@@ -42,10 +42,14 @@ plan_recovery_enabled: true
 plan_recovery_timeout_s: 90.0
 plan_recovery_direct_max_attempts: 2
 plan_recovery_via_max_attempts: 4
-# Tip-to-marker-center clearances (meters) tried as via standoffs (nearest first).
+# Tip-to-marker-center clearances (meters). After a failed attempt, candidates
+# are tried **nearest → farthest** from the current tip (progressive distance).
 plan_recovery_standoff_clearances_m: [0.015, 0.020, 0.025, 0.04, 0.06, 0.08, 0.12, 0.18]
 # Lateral yaw offsets (radians) about +Z through the marker for standoff poses.
 plan_recovery_lateral_yaw_rad: [0.0, 0.4, -0.4, 0.8, -0.8]
+# Minimum tip travel (meters) to accept a standoff (skip near-identical poses).
+# Progressive near→far ordering still prefers the smallest valid travel first.
+plan_recovery_min_standoff_travel_m: 0.01
 # Tip-to-surface stand-off beyond marker radius (meters) when tip spheres are kept.
 # Contact planner (omit tip) uses margin 0 so the tip can land on the surface.
 plan_recovery_surface_margin_m: 0.015

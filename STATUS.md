@@ -1,10 +1,10 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-11**
+Last updated: **2026-07-12**
 
 ## One-paragraph summary
 
-**Phase 1 complete on `main`.** **Phase 2 foundation complete on `wip_phase2`** (cuRobo + volumetric marker + fail-closed gate + via **planning** recovery + headless audits). **PLAN_OK rate and visible/partial recovery execution are still being improved** — see [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md). Next major phase: Phase 3 supervised residual (not a substitute for collision-free planning).
+**Phase 1 complete on `main`.** **Phase 2 foundation complete on `wip_phase2`** (cuRobo + volumetric marker + fail-closed gate + via **planning** recovery + tip-face contact + progressive near→far retries + headless audits). **PLAN_OK rate and visible/partial recovery execution are still being improved** — see [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md). Next major phase: Phase 3 supervised residual (not a substitute for collision-free planning).
 
 ## Current phase
 
@@ -18,7 +18,7 @@ Last updated: **2026-07-11**
 
 ## What works vs still developing (Phase 2)
 
-**Works:** NumPy CI geometry; host cuRobo; volumetric marker; tip-omit contact; timeout recovery with **partial via execution** (EE moves during budget); yellow only after timeout; **100% PLAN_OK** gate (`min_plan_ok_rate: 1.0`, timeout **90 s**); GUI auto in pytest; home once at viz start.
+**Works:** NumPy CI geometry; host cuRobo; volumetric marker; tip-omit contact; timeout recovery with **partial via execution** (EE moves during budget); recovery vias **nearest → farthest** (`plan_recovery_min_standoff_travel_m: 0.01`); yellow only after timeout; green only on **tip-face** contact (not side graze); **100% PLAN_OK** gate (`min_plan_ok_rate: 1.0`, timeout **90 s**); GUI auto in pytest; home once at viz start.
 
 **Still developing:** optional polish on rare missed green; MoveIt/cuMotion; merge to `main`.
 
@@ -51,7 +51,7 @@ export ISAACSIM_PATH="${ISAACSIM_PATH:-$HOME/isaacsim}"
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
 ```
 
-Look for `Phase 2 planner: cuRobo MotionGen`, `PLAN_OK` / `PLAN_FAIL` with `via_attempts=N`, marker red→**green** on tip surface contact or yellow on fail. GUI smoke resets home **once** at start only (no per-trial `--reset-to-home`).
+Look for `Phase 2 planner: cuRobo MotionGen`, `PLAN_OK` / `PLAN_FAIL` with `via_attempts=N`, marker red→**green** on tip-face contact or yellow on fail. GUI smoke resets home **once** at start only (no per-trial `--reset-to-home`).
 
 ## Resume after a long break
 

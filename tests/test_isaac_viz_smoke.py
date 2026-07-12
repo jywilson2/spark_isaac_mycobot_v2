@@ -144,7 +144,8 @@ def test_smoke_isaac_viz_script_exists_and_documents_policy():
 def test_viz_moves_home_once_and_turns_marker_green_on_contact():
     src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
     assert "moving to home once before trials" in src
-    assert "MARKER_CONTACT: tip on sphere surface" in src
+    assert "MARKER_CONTACT: tip-face center on sphere" in src
+    assert "approach_from_m" in src
     assert "MarkerVisualState.CONTACT" in src
     assert "ee_contacts_target" in src
 

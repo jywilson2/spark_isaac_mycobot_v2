@@ -4,14 +4,15 @@
 Phase 1–2 viz places a sphere of radius ``TARGET_MARKER_RADIUS_M`` at each IK
 goal:
 
-* **red** — pending approach (plan OK, tip not in contact yet)
-* **green** — EE tip on/inside the sphere surface (within radius + small outer tol)
-* **yellow** — path planning failed; arm must not move (fail closed)
+* **red** — pending approach (plan OK, tip not in tip-face contact yet)
+* **green** — EE **tip-face center** on the marker surface along the approach
+  ray (side / flange grazes do **not** count)
+* **yellow** — path planning failed after recovery timeout; arm must not move
 
 Phase 2 planning treats the same radius as a **volumetric** obstacle: fitted
-EE/arm collision spheres must not intersect the marker on the path. Tip contact
-at the goal remains allowed when a plan succeeds. See ``spec.md`` Phase 2,
-``isaac_sim/viz_plan_policy.py``, and ``isaac_sim/run_ik_viz.py``.
+EE/arm collision spheres must not intersect the marker on the path. See
+``spec.md`` Phase 2, ``isaac_sim/viz_plan_policy.py``, and
+``isaac_sim/run_ik_viz.py``.
 """
 from __future__ import annotations
 
@@ -34,10 +35,13 @@ TARGET_MARKER_EMISSIVE_YELLOW_RGB = (0.40, 0.35, 0.04)
 TARGET_MARKER_COLOR_RGB = TARGET_MARKER_COLOR_RED_RGB
 TARGET_MARKER_EMISSIVE_RGB = TARGET_MARKER_EMISSIVE_RED_RGB
 
-# Tip-to-center distance ≤ sphere radius ⇒ tip on or inside the marker surface.
+# Tip-to-center distance ≤ sphere radius ⇒ tip on or inside the marker volume.
 TARGET_MARKER_CONTACT_DISTANCE_M = TARGET_MARKER_RADIUS_M
 # Allow a thin outer shell so sim lag / servo error still counts as surface contact.
 TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M = 0.003
+# Half-width of the EE tip-face "pad" (meters). Tip must land within this of the
+# ideal approach pierce point — rejects side grazes on the sphere.
+TARGET_MARKER_TIP_FACE_RADIUS_M = 0.006
 
 
 def marker_rgb_for_state(
@@ -51,21 +55,67 @@ def marker_rgb_for_state(
     return TARGET_MARKER_COLOR_RED_RGB, TARGET_MARKER_EMISSIVE_RED_RGB
 
 
+def tip_face_pierce_point_m(
+    approach_from_m: np.ndarray,
+    target_position_m: np.ndarray,
+    *,
+    radius_m: float = TARGET_MARKER_RADIUS_M,
+) -> np.ndarray:
+    """Ideal tip-face contact point on the near sphere surface (meters).
+
+    Along the ray from ``approach_from_m`` toward the marker center, at
+    distance ``radius_m`` from the center (surface, approach side).
+    """
+    start = np.asarray(approach_from_m, dtype=float).reshape(3)
+    center = np.asarray(target_position_m, dtype=float).reshape(3)
+    delta = center - start
+    dist = float(np.linalg.norm(delta))
+    r = float(radius_m)
+    if dist < 1e-9:
+        return center - np.array([0.0, 0.0, r], dtype=float)
+    return center - (r / dist) * delta
+
+
 def ee_contacts_target(
     ee_position_m: np.ndarray,
     target_position_m: np.ndarray,
     *,
     contact_distance_m: float = TARGET_MARKER_CONTACT_DISTANCE_M,
     outer_tol_m: float = TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M,
+    approach_from_m: np.ndarray | None = None,
+    tip_face_radius_m: float = TARGET_MARKER_TIP_FACE_RADIUS_M,
 ) -> bool:
-    """Return True when EE tip contacts the marker surface (or is inside).
+    """Return True when the EE **tip-face center** contacts the marker.
 
-    Units: meters. Green when tip-to-center distance is ≤ ``contact_distance_m``
-    (sphere radius) plus a small ``outer_tol_m`` for simulation lag. Phase 2
-    contact legs plan the tip onto the surface; this switches red → green.
+    Units: meters.
+
+    Requirements
+    ------------
+    1. Tip-to-center distance ≤ ``contact_distance_m + outer_tol_m`` (on/near
+       the sphere).
+    2. When ``approach_from_m`` is set (viz / recovery), the tip's **lateral**
+       offset from the approach axis (through the marker center) must be
+       ≤ ``tip_face_radius_m``. That is the middle of the EE tip contact pad.
+       Side / equator grazes fail; axial immersion along the approach still
+       counts.
     """
     ee = np.asarray(ee_position_m, dtype=float).reshape(3)
     tgt = np.asarray(target_position_m, dtype=float).reshape(3)
-    return float(np.linalg.norm(ee - tgt)) <= float(contact_distance_m) + float(
-        outer_tol_m
-    )
+    dist = float(np.linalg.norm(ee - tgt))
+    if dist > float(contact_distance_m) + float(outer_tol_m):
+        return False
+    if approach_from_m is None:
+        # Legacy / unit callers without an approach ray: volume check only.
+        return True
+    start = np.asarray(approach_from_m, dtype=float).reshape(3)
+    delta = tgt - start
+    an = float(np.linalg.norm(delta))
+    if an < 1e-9:
+        approach_u = np.array([0.0, 0.0, 1.0], dtype=float)
+    else:
+        approach_u = delta / an
+    # Lateral distance from the approach axis through the marker center.
+    v = ee - tgt
+    axial = float(np.dot(v, approach_u))
+    lateral = float(np.linalg.norm(v - axial * approach_u))
+    return lateral <= float(tip_face_radius_m) + 1e-9

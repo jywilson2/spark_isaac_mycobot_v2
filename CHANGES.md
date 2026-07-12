@@ -1,5 +1,26 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Progressive near→far recovery vias (2026-07-12 00:23)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `src/.../planning/recovery.py` | **Updated** | Standoffs sorted nearest → farthest (progressive retries) |
+| `configs/planning/collision.yaml` | **Updated** | `plan_recovery_min_standoff_travel_m: 0.01` (no-op floor only) |
+| `tests/test_plan_recovery.py` | **Updated** | Assert ascending travel order |
+| Docs (`phase2_*`, `STATUS`, `last_prompt`) | **Updated** | Document progressive distance |
+
+## Tip-face contact + farthest recovery vias (2026-07-12 00:16)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `isaac_sim/target_marker.py` | **Updated** | Tip-face pierce contact; side grazes invalid when `approach_from_m` set |
+| `isaac_sim/run_ik_viz.py` | **Updated** | Passes / refreshes `approach_from_m` for green |
+| `src/.../planning/recovery.py` | **Updated** | `ordered_standoff_candidates` farthest-first; min tip travel |
+| `configs/planning/collision.yaml` | **Updated** | `plan_recovery_min_standoff_travel_m: 0.06` |
+| `tests/test_target_marker.py` | **Updated** | Tip-face vs side assertions |
+| `tests/test_plan_recovery.py` | **Updated** | Farthest-first + YAML min travel |
+| `docs/phase2_geometry.md`, `spec.md`, `STATUS.md` | **Updated** | Document tip-face + far retries |
+
 ## Hung Isaac wait diagnosis (2026-07-11 23:59)
 
 | Path | Action | Notes |

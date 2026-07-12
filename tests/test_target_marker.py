@@ -5,15 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from isaac_sim.target_marker import (
     TARGET_MARKER_COLOR_GREEN_RGB,
     TARGET_MARKER_COLOR_RED_RGB,
     TARGET_MARKER_COLOR_YELLOW_RGB,
-    TARGET_MARKER_CONTACT_DISTANCE_M,
     TARGET_MARKER_RADIUS_M,
+    TARGET_MARKER_TIP_FACE_RADIUS_M,
     ee_contacts_target,
     marker_rgb_for_state,
+    tip_face_pierce_point_m,
 )
 from isaac_sim.viz_plan_policy import MarkerVisualState
 
@@ -28,10 +30,12 @@ def test_target_marker_radius_matches_v1():
     assert "UsdGeom.Sphere" in src
     assert "ee_contacts_target" in src
     assert "TARGET_MARKER_COLOR_GREEN_RGB" in src or "contacted" in src
+    assert "approach_from_m" in src
+    assert "tip-face" in src.lower() or "tip_face" in src
 
 
 def test_ee_contacts_target_surface_and_interior():
-    """Green when tip is on/inside the sphere surface (plus small outer tol)."""
+    """Without approach ray: volume check (legacy / unit callers)."""
     from isaac_sim.target_marker import TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M
 
     target = np.array([0.20, 0.0, 0.15])
@@ -51,6 +55,38 @@ def test_ee_contacts_target_surface_and_interior():
         [TARGET_MARKER_RADIUS_M + TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M + 0.001, 0.0, 0.0]
     )
     assert not ee_contacts_target(beyond, target)
+
+
+def test_ee_contacts_target_requires_tip_face_not_side():
+    """With approach ray: only tip-face center counts — side grazes are invalid."""
+    target = np.array([0.20, 0.0, 0.15])
+    # Approach along +X: start west of the marker.
+    approach_from = target + np.array([-0.10, 0.0, 0.0])
+    pierce = tip_face_pierce_point_m(approach_from, target)
+    assert float(np.linalg.norm(pierce - target)) == pytest.approx(
+        TARGET_MARKER_RADIUS_M, abs=1e-9
+    )
+    assert ee_contacts_target(
+        pierce, target, approach_from_m=approach_from
+    )
+    # Slight offset still within tip-face pad.
+    near_pad = pierce + np.array([0.0, TARGET_MARKER_TIP_FACE_RADIUS_M * 0.5, 0.0])
+    assert ee_contacts_target(
+        near_pad, target, approach_from_m=approach_from
+    )
+    # Axial immersion along the approach (inside the sphere) still counts.
+    inside_axis = target + np.array([-TARGET_MARKER_RADIUS_M * 0.4, 0.0, 0.0])
+    assert ee_contacts_target(
+        inside_axis, target, approach_from_m=approach_from
+    )
+    # Equator / side graze: on the sphere but far from pierce → not contact.
+    side = target + np.array([0.0, TARGET_MARKER_RADIUS_M, 0.0])
+    assert float(np.linalg.norm(side - target)) == pytest.approx(
+        TARGET_MARKER_RADIUS_M, abs=1e-9
+    )
+    assert not ee_contacts_target(
+        side, target, approach_from_m=approach_from
+    )
 
 
 def test_red_and_green_rgb_distinct():

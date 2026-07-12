@@ -1,5 +1,21 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-12 00:23 -07:00
+Considering your "worth a look" comment: Would it make sense to generate vias in progressively more distant locations, starting with near locations, getting further out for each retry? If so, implement this and iterate until success.
+
+If all passes, commit with a detailed message, rebase, and push.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-12 00:16 -07:00
+When there is a planning failure the next waypoint generated for retry should be far from the current location of the EE. If you agree, then please make a code change to cause this.
+
+Redefine contact with the target to require the middle of the contact area of the EE. Side contact should not be considered valid.
+## END
+
+# Old prompts:
+
 ## BEGIN: 2026-07-12 00:08 -07:00
 When planning fails I frequently see the EE remain motionless with the target immediately teleporting.
 
@@ -11,8 +27,6 @@ When planning tests pass as described above, report the timeout values required 
 
 When finished with the changes, commit, rebase, and push to the remote repo.
 ## END
-
-# Old prompts:
 
 ## BEGIN: 2026-07-11 23:59 -07:00
 It seems that the first agent is hung waiting for IsaacSim to complete.

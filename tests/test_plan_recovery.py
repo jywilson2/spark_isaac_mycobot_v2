@@ -11,6 +11,7 @@ import pytest
 from residual_adaptive_ik.geometry.collision import SphereObstacle
 from residual_adaptive_ik.planning.curobo_planner import PlannedTrajectory
 from residual_adaptive_ik.planning.recovery import (
+    ordered_standoff_candidates,
     plan_via_standoff,
     tip_standoff_on_approach,
 )
@@ -25,6 +26,32 @@ def test_tip_standoff_clearance_matches():
         p = tip_standoff_on_approach(start, center, clearance_m=c)
         assert float(np.linalg.norm(p - center)) == pytest.approx(c, abs=1e-9)
         assert p[0] < center[0]
+
+
+def test_ordered_standoff_candidates_near_to_far():
+    """Retries progress from near standoffs to farther ones."""
+    tip_start = np.array([0.05, 0.0, 0.10])
+    center = np.array([0.20, 0.0, 0.10])
+    tip_contact = tip_standoff_on_approach(tip_start, center, clearance_m=0.012)
+    rows = ordered_standoff_candidates(
+        tip_start,
+        center,
+        tip_contact,
+        clearances_m=[0.05, 0.12, 0.18],
+        yaws_rad=[0.0],
+        radius_m=0.012,
+        surface_margin_m=0.015,
+        min_travel_m=0.01,
+    )
+    usable = [r for r in rows if not r[4]]
+    assert usable, "expected at least one standoff"
+    travels = [r[3] for r in usable]
+    assert travels == sorted(travels), "must be nearest → farthest"
+    assert travels[0] <= travels[-1]
+    # Skips (if any) must appear after usable rows.
+    skip_idx = next((i for i, r in enumerate(rows) if r[4]), None)
+    if skip_idx is not None:
+        assert all(not r[4] for r in rows[:skip_idx])
 
 
 def test_plan_via_standoff_uses_via_when_direct_fails():
@@ -262,6 +289,8 @@ def test_collision_yaml_recovery_defaults():
     assert float(cfg.get("plan_recovery_timeout_s", 0)) >= 90.0
     assert int(cfg.get("plan_recovery_direct_max_attempts", 99)) <= 2
     assert len(cfg.get("plan_recovery_standoff_clearances_m", [])) >= 1
+    assert float(cfg.get("plan_recovery_min_standoff_travel_m", 0)) >= 0.005
+    assert float(cfg.get("plan_recovery_min_standoff_travel_m", 1)) <= 0.05
     assert float(cfg.get("min_plan_ok_rate", 0)) >= 1.0 - 1e-9
 
 

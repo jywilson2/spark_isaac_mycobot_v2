@@ -71,14 +71,19 @@ Optional and **disabled by default** (`reset_to_home_before_each_trial: false`).
 
 ## Plan recovery (standoff via-waypoints)
 
-When a direct surface plan fails and `plan_recovery_enabled: true` (default), the planner keeps trying until `plan_recovery_timeout_s` (default **15 s**):
+When a direct surface plan fails and `plan_recovery_enabled: true` (default), the planner keeps trying until `plan_recovery_timeout_s` (default **90 s**):
 
 1. **Direct** tip → marker surface (capped at `plan_recovery_direct_max_attempts`, default 2)  
-2. **Via standoff** for each clearance in `plan_recovery_standoff_clearances_m`: plan `start → standoff`, then `standoff → surface`, concatenate  
+2. **Via standoff** candidates from `plan_recovery_standoff_clearances_m` × lateral yaws, ordered **nearest → farthest** from the current tip (progressive distance). Candidates closer than `plan_recovery_min_standoff_travel_m` (default **0.01 m**) are skipped so we do not plan to a near-identical pose. Plan `start → standoff`, then `standoff → surface`.  
+3. Optional **partial via1 execution** (Isaac viz): move the EE on a successful via1 even if via2 fails, then continue from the new pose.
 
-The **first** via is always attempted after a failed direct plan (so a slow direct `IK_FAIL` cannot skip recovery). Further clearances respect the timeout.
+The **first** recovery pass always runs after a failed direct plan (so a slow direct `IK_FAIL` cannot skip recovery). Further work respects the timeout.
 
-Planning recovery does **not** move the arm until a full path succeeds — yellow + motionless means every strategy failed. Logs must include `via_attempts=N` / `via1_…`.
+Yellow + motionless means the wall-clock budget expired with no executable path. Logs must include `via_attempts=N` / `via1_…` / `travel_m=…`.
+
+### Tip-face contact (red → green)
+
+Green requires the **middle of the EE tip contact pad** on the marker surface along the approach ray (`ee_contacts_target(..., approach_from_m=…)`). Side / equator grazes are not valid contact.
 
 Headless audit (fails if any PLAN_FAIL has zero via attempts):
 

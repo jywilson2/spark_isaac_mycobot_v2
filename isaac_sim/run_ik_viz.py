@@ -637,20 +637,37 @@ def run_viz(args: argparse.Namespace) -> int:
             )
             marker_committed = False
             contacted = False
+            # Approach ray for tip-face contact (meters): tip at trial start, then
+            # refreshed at the start of each executed segment so side grazes after
+            # a lateral recovery approach do not turn the marker green.
+            approach_from_m = np.asarray(
+                forward_kinematics(q_now).position_m, dtype=float
+            ).reshape(3).copy()
 
             def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
                 nonlocal contacted
                 if contacted:
                     return
                 ee = forward_kinematics(q_rad).position_m
-                if ee_contacts_target(ee, _tgt):
+                if ee_contacts_target(
+                    ee, _tgt, approach_from_m=approach_from_m
+                ):
                     contacted = True
                     _set_target_marker_color(stage, state=MarkerVisualState.CONTACT)
-                    _viz_log("  MARKER_CONTACT: tip on sphere surface → green")
+                    _viz_log(
+                        "  MARKER_CONTACT: tip-face center on sphere → green"
+                    )
 
             def _execute_waypoints(waypoints_rad: np.ndarray, dt_s: float) -> None:
                 """Move the EE during recovery (via1 / direct); commit red marker."""
-                nonlocal marker_committed
+                nonlocal marker_committed, approach_from_m
+                wp = np.asarray(waypoints_rad, dtype=float)
+                if wp.ndim == 1:
+                    wp = wp.reshape(1, -1)
+                if wp.shape[0] >= 1:
+                    approach_from_m = np.asarray(
+                        forward_kinematics(wp[0]).position_m, dtype=float
+                    ).reshape(3).copy()
                 if not marker_committed:
                     # First committed motion toward this goal — show red target.
                     _set_target_marker(
@@ -660,7 +677,7 @@ def run_viz(args: argparse.Namespace) -> int:
                     _viz_log("  MARKER_COMMIT: red target (EE recovery motion starts)")
                 _follow_trajectory(
                     articulation,
-                    waypoints_rad,
+                    wp,
                     simulation_app,
                     dt_s=float(dt_s),
                     max_speed_rad_s=max_speed,

@@ -1,7 +1,7 @@
 # Phase 2 — What works, what’s next, how to resume
 
 **Branch:** `wip_phase2`  
-**Last updated:** 2026-07-11  
+**Last updated:** 2026-07-12  
 **Units:** meters, radians, seconds  
 
 This is the operational briefing for Phase 2 (geometry + collision-aware planning). Authoritative requirements remain in [spec.md](../spec.md) § Phase 2. Day-to-day commands: [README.md](../README.md), [STATUS.md](../STATUS.md).
@@ -22,6 +22,8 @@ This is the operational briefing for Phase 2 (geometry + collision-aware plannin
 | Min PLAN_OK rate smoke gate | **Done** | `min_plan_ok_rate: 1.0` (100% required; verified 48/48 GUI) |
 | Contact-leg tip omit (`omit_tip_links`) | **Done** | Direct / via2 use second MotionGen without flange spheres |
 | Timeout recovery + partial via exec | **Done** | Loop until `plan_recovery_timeout_s` (**90 s**); execute via1 mid-budget; yellow only after timeout |
+| Far recovery vias | **Done** | Standoffs ordered nearest → farthest; `plan_recovery_min_standoff_travel_m: 0.01` |
+| Tip-face green contact | **Done** | Middle of tip pad on approach pierce; side grazes invalid |
 | GUI in automated pytest (Spark) | **Done** | `test_isaac_viz_gui_smoke` auto-runs; opt out `SPARK_RUN_ISAAC_GUI_SMOKE=0` |
 | Standoff via-waypoint **planning** recovery | **Done** | Clearances + lateral yaw; near-surface vias; INVALID_START escape toward home |
 | Headless recovery audit | **Done** | `diagnose_plan_recovery.sh` — fails if PLAN_FAIL has zero `via1_` |

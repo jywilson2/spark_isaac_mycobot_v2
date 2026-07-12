@@ -12,6 +12,10 @@ Behaviour (Phase 2 viz / smoke)
 -------------------------------
 * Keep retrying strategies until ``plan_recovery_timeout_s`` elapses — do **not**
   declare PLAN_FAIL after a single quick pass over clearances.
+* After a failed attempt, via standoffs are ordered **nearest → farthest** from
+  the current tip (progressive distance). Candidates closer than
+  ``plan_recovery_min_standoff_travel_m`` are skipped so the EE does not “retry”
+  an almost-identical pose; each subsequent candidate is farther out.
 * When ``execute_waypoints`` is provided and via1 succeeds but via2 fails,
   **execute via1** (move the EE), then continue planning from the new pose.
 * The IK target marker must not jump to yellow until this budget is exhausted.
@@ -79,6 +83,63 @@ def tip_standoff_on_approach(
         else:
             direction = direction / n
     return center - clearance * direction
+
+
+def ordered_standoff_candidates(
+    tip_start_m: np.ndarray,
+    sphere_center_m: np.ndarray,
+    tip_contact_m: np.ndarray,
+    *,
+    clearances_m: Sequence[float],
+    yaws_rad: Sequence[float],
+    radius_m: float,
+    surface_margin_m: float,
+    min_travel_m: float,
+    skip_near_contact_m: float = 0.015,
+) -> list[tuple[float, float, np.ndarray, float, str]]:
+    """Build via-standoff candidates, nearest to the current tip first.
+
+    Progressive recovery: try a nearby standoff first, then increasingly
+    distant waypoints on later retries. Candidates with tip travel
+    ``< min_travel_m`` are omitted (``skip_near_start``) so we do not plan to
+    an almost-identical EE pose.
+
+    Returns
+    -------
+    list of ``(clearance_m, yaw_rad, tip_standoff_m, travel_m, skip_reason)``
+    where ``skip_reason`` is empty for usable candidates, else a short tag.
+    Usable rows are sorted by ``travel_m`` **ascending** (near → far).
+    """
+    tip_start = np.asarray(tip_start_m, dtype=float).reshape(3)
+    center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+    tip_contact = np.asarray(tip_contact_m, dtype=float).reshape(3)
+    min_clear = float(radius_m) + float(surface_margin_m) + 0.01
+    min_travel = max(0.0, float(min_travel_m))
+    usable: list[tuple[float, float, np.ndarray, float, str]] = []
+    skipped: list[tuple[float, float, np.ndarray, float, str]] = []
+    for clearance in clearances_m:
+        clearance_f = max(float(clearance), min_clear)
+        for yaw in yaws_rad:
+            tip_standoff = tip_standoff_on_approach(
+                tip_start,
+                center,
+                clearance_m=clearance_f,
+                yaw_offset_rad=float(yaw),
+            )
+            travel = float(np.linalg.norm(tip_standoff - tip_start))
+            if float(np.linalg.norm(tip_standoff - tip_contact)) < skip_near_contact_m:
+                skipped.append(
+                    (clearance_f, float(yaw), tip_standoff, travel, "skip_near_contact")
+                )
+                continue
+            if travel < min_travel:
+                skipped.append(
+                    (clearance_f, float(yaw), tip_standoff, travel, "skip_near_start")
+                )
+                continue
+            usable.append((clearance_f, float(yaw), tip_standoff, travel, ""))
+    usable.sort(key=lambda row: row[3])  # nearest first, then farther
+    return usable + skipped
 
 
 def recovery_via_attempts_in_message(message: str) -> int:
@@ -234,8 +295,8 @@ def plan_via_standoff(
     Recovery order (repeated until deadline)
     ---------------------------------------
     1. Direct plan to marker surface (contact planner / omit tip spheres).
-    2. For each clearance × lateral yaw: plan ``start → standoff`` then
-       ``standoff → surface``.
+    2. Standoff candidates (clearance × lateral yaw), sorted by tip travel
+       **ascending** (near → far); skip near-start / near-contact vias.
     3. If via1 succeeds and via2 fails and ``execute_waypoints`` is set,
        execute via1 (EE moves), update the start pose, and keep trying.
     4. Only after the wall-clock budget expires return a failed trajectory.
@@ -257,6 +318,10 @@ def plan_via_standoff(
     )
     surface_margin = float(
         cfg.get("plan_recovery_surface_margin_m", surface_margin_m)
+    )
+    # Floor only: skip tiny no-ops; progressive order tries near then far.
+    min_standoff_travel_m = float(
+        cfg.get("plan_recovery_min_standoff_travel_m", 0.01)
     )
     attempts = int(cfg.get("curobo_max_attempts", max_attempts))
     direct_attempts = int(
@@ -374,182 +439,175 @@ def plan_via_standoff(
             continue
 
         progressed = False
-        for clearance in clearances:
+        candidates = ordered_standoff_candidates(
+            tip_start,
+            center,
+            tip_contact,
+            clearances_m=clearances,
+            yaws_rad=yaws,
+            radius_m=radius,
+            surface_margin_m=surface_margin,
+            min_travel_m=min_standoff_travel_m,
+        )
+        for clearance_f, yaw, tip_standoff, travel_m, skip_reason in candidates:
             if _timed_out() and not allow_overtime:
                 break
-            clearance_f = float(clearance)
-            min_clear = radius + surface_margin + 0.01
-            if clearance_f < min_clear:
-                clearance_f = min_clear
-            for yaw in yaws:
-                if _timed_out() and not allow_overtime:
-                    break
-                tip_standoff = tip_standoff_on_approach(
-                    tip_start,
-                    center,
-                    clearance_m=clearance_f,
-                    yaw_offset_rad=float(yaw),
+            if skip_reason:
+                attempts_log.append(
+                    f"standoff_{clearance_f:.3f}_y{yaw:.2f}:{skip_reason}"
+                    f"|travel_m={travel_m:.3f}"
                 )
-                if float(np.linalg.norm(tip_standoff - tip_contact)) < 0.015:
-                    attempts_log.append(
-                        f"standoff_{clearance_f:.3f}_y{yaw:.2f}:skip_near_contact"
-                    )
-                    continue
-                if float(np.linalg.norm(tip_standoff - tip_start)) < 0.01:
-                    attempts_log.append(
-                        f"standoff_{clearance_f:.3f}_y{yaw:.2f}:skip_near_start"
-                    )
-                    continue
+                continue
 
-                via_legs_started += 1
-                leg1 = planner.plan_to_pose(
-                    q_cur,
-                    tip_standoff,
-                    quat,
-                    max_attempts=max(1, via_attempts),
-                    obstacles=obs,
-                )
-                tag = f"{clearance_f:.3f}_y{yaw:.2f}"
-                attempts_log.append(f"via1_{tag}:{leg1.message}")
-                last_dt = float(leg1.dt_s)
-                if not leg1.ok:
-                    continue
+            via_legs_started += 1
+            leg1 = planner.plan_to_pose(
+                q_cur,
+                tip_standoff,
+                quat,
+                max_attempts=max(1, via_attempts),
+                obstacles=obs,
+            )
+            tag = f"{clearance_f:.3f}_y{yaw:.2f}"
+            attempts_log.append(
+                f"via1_{tag}:travel_m={travel_m:.3f}|{leg1.message}"
+            )
+            last_dt = float(leg1.dt_s)
+            if not leg1.ok:
+                continue
 
-                q_mid = _clamp_joints(leg1.waypoints_rad[-1])
-                tip_mid = forward_kinematics(q_mid, model=mdl).position_m
-                # If the standoff already places the tip on/inside the sphere
-                # surface, treat as success (no via2 required).
-                if float(np.linalg.norm(tip_mid - center)) <= radius + 0.003:
-                    if execute_waypoints is not None:
-                        execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
-                        return _ok(
-                            q_mid.reshape(1, 6),
-                            dt_s=float(leg1.dt_s),
-                            message=(
-                                f"ok|strategy=via_standoff_contact|"
-                                f"clearance_m={clearance_f:.3f}|yaw_rad={yaw:.2f}|"
-                                f"via_attempts={via_legs_started}|"
-                                f"partial_execs={partial_execs}|"
-                                f"elapsed_s={time.monotonic() - t0:.2f}|already_executed"
-                            ),
-                        )
+            q_mid = _clamp_joints(leg1.waypoints_rad[-1])
+            tip_mid = forward_kinematics(q_mid, model=mdl).position_m
+            # If the standoff already places the tip on/inside the sphere
+            # surface, treat as success (no via2 required).
+            if float(np.linalg.norm(tip_mid - center)) <= radius + 0.003:
+                if execute_waypoints is not None:
+                    execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
                     return _ok(
-                        leg1.waypoints_rad,
+                        q_mid.reshape(1, 6),
                         dt_s=float(leg1.dt_s),
                         message=(
                             f"ok|strategy=via_standoff_contact|"
                             f"clearance_m={clearance_f:.3f}|yaw_rad={yaw:.2f}|"
                             f"via_attempts={via_legs_started}|"
-                            f"elapsed_s={time.monotonic() - t0:.2f}"
+                            f"partial_execs={partial_execs}|"
+                            f"elapsed_s={time.monotonic() - t0:.2f}|already_executed"
                         ),
                     )
-                tip_contact = tip_on_sphere_surface(
-                    tip_mid, center, radius, margin_m=contact_margin
+                return _ok(
+                    leg1.waypoints_rad,
+                    dt_s=float(leg1.dt_s),
+                    message=(
+                        f"ok|strategy=via_standoff_contact|"
+                        f"clearance_m={clearance_f:.3f}|yaw_rad={yaw:.2f}|"
+                        f"via_attempts={via_legs_started}|"
+                        f"elapsed_s={time.monotonic() - t0:.2f}"
+                    ),
                 )
-                if _timed_out() and not allow_overtime:
-                    if execute_waypoints is not None:
-                        execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
-                        partial_execs += 1
-                        q_cur = q_mid
-                        tip_start = tip_mid
-                        progressed = True
-                    attempts_log.append("timeout_before_via2")
-                    break
-
-                leg2 = None
-                quat_mid = forward_kinematics(q_mid, model=mdl).quaternion_wxyz
-                tip_margins = [contact_margin, 0.003, 0.008, 0.015]
-                for cm in tip_margins:
-                    tip_try = tip_on_sphere_surface(
-                        tip_mid, center, radius, margin_m=float(cm)
-                    )
-                    for quat_try, quat_tag in (
-                        (quat_mid, "mid_q"),
-                        (quat, "goal_q"),
-                    ):
-                        if _timed_out() and not allow_overtime:
-                            break
-                        leg2 = contact.plan_to_pose(
-                            q_mid,
-                            tip_try,
-                            quat_try,
-                            max_attempts=max(1, via_attempts),
-                            obstacles=obs,
-                        )
-                        attempts_log.append(
-                            f"via2_{tag}_m{cm:.3f}_{quat_tag}:{leg2.message}"
-                        )
-                        last_dt = float(leg2.dt_s)
-                        if leg2.ok:
-                            break
-                    if leg2 is not None and leg2.ok:
-                        break
-                    # Classical IK seed → joint-space MotionGen to surface tip.
-                    try:
-                        from residual_adaptive_ik.kinematics.fk import Pose
-                        from residual_adaptive_ik.kinematics.numerical_ik import (
-                            DampedLeastSquaresIK,
-                        )
-
-                        ik = DampedLeastSquaresIK(model=mdl)
-                        pose_try = Pose(
-                            position_m=tip_try, quaternion_wxyz=quat_mid
-                        )
-                        ik_res = ik.solve(pose_try, seed_q=q_mid)
-                        if bool(getattr(ik_res, "success", False)):
-                            q_ik = _clamp_joints(ik_res.q)
-                            leg2 = contact.plan_to_joint_goal(
-                                q_mid,
-                                q_ik,
-                                model=mdl,
-                                obstacles=obs,
-                                max_attempts=max(1, via_attempts),
-                            )
-                            attempts_log.append(
-                                f"via2_{tag}_m{cm:.3f}_ik:{leg2.message}"
-                            )
-                            last_dt = float(leg2.dt_s)
-                            if leg2.ok:
-                                break
-                    except Exception as exc:  # noqa: BLE001
-                        attempts_log.append(f"via2_{tag}_ik_err:{exc}")
-                if leg2 is not None and leg2.ok:
-                    if execute_waypoints is not None:
-                        execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
-                        execute_waypoints(leg2.waypoints_rad, float(leg2.dt_s))
-                        q_hold = _clamp_joints(leg2.waypoints_rad[-1])
-                        return _ok(
-                            q_hold.reshape(1, 6),
-                            dt_s=float(leg1.dt_s),
-                            message=(
-                                f"ok|strategy=via_standoff|clearance_m={clearance_f:.3f}|"
-                                f"yaw_rad={yaw:.2f}|via_attempts={via_legs_started}|"
-                                f"partial_execs={partial_execs}|"
-                                f"elapsed_s={time.monotonic() - t0:.2f}|already_executed"
-                            ),
-                        )
-                    waypoints = _concat_waypoints(
-                        leg1.waypoints_rad, leg2.waypoints_rad
-                    )
-                    return _ok(
-                        waypoints,
-                        dt_s=float(leg1.dt_s),
-                        message=(
-                            f"ok|strategy=via_standoff|clearance_m={clearance_f:.3f}|"
-                            f"yaw_rad={yaw:.2f}|via_attempts={via_legs_started}|"
-                            f"elapsed_s={time.monotonic() - t0:.2f}"
-                        ),
-                    )
-
+            tip_contact = tip_on_sphere_surface(
+                tip_mid, center, radius, margin_m=contact_margin
+            )
+            if _timed_out() and not allow_overtime:
                 if execute_waypoints is not None:
                     execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
                     partial_execs += 1
                     q_cur = q_mid
                     tip_start = tip_mid
                     progressed = True
-                    attempts_log.append(f"partial_via1_{tag}:executed")
+                attempts_log.append("timeout_before_via2")
+                break
+
+            leg2 = None
+            quat_mid = forward_kinematics(q_mid, model=mdl).quaternion_wxyz
+            tip_margins = [contact_margin, 0.003, 0.008, 0.015]
+            for cm in tip_margins:
+                tip_try = tip_on_sphere_surface(
+                    tip_mid, center, radius, margin_m=float(cm)
+                )
+                for quat_try, quat_tag in (
+                    (quat_mid, "mid_q"),
+                    (quat, "goal_q"),
+                ):
+                    if _timed_out() and not allow_overtime:
+                        break
+                    leg2 = contact.plan_to_pose(
+                        q_mid,
+                        tip_try,
+                        quat_try,
+                        max_attempts=max(1, via_attempts),
+                        obstacles=obs,
+                    )
+                    attempts_log.append(
+                        f"via2_{tag}_m{cm:.3f}_{quat_tag}:{leg2.message}"
+                    )
+                    last_dt = float(leg2.dt_s)
+                    if leg2.ok:
+                        break
+                if leg2 is not None and leg2.ok:
                     break
-            if progressed:
+                # Classical IK seed → joint-space MotionGen to surface tip.
+                try:
+                    from residual_adaptive_ik.kinematics.fk import Pose
+                    from residual_adaptive_ik.kinematics.numerical_ik import (
+                        DampedLeastSquaresIK,
+                    )
+
+                    ik = DampedLeastSquaresIK(model=mdl)
+                    pose_try = Pose(
+                        position_m=tip_try, quaternion_wxyz=quat_mid
+                    )
+                    ik_res = ik.solve(pose_try, seed_q=q_mid)
+                    if bool(getattr(ik_res, "success", False)):
+                        q_ik = _clamp_joints(ik_res.q)
+                        leg2 = contact.plan_to_joint_goal(
+                            q_mid,
+                            q_ik,
+                            model=mdl,
+                            obstacles=obs,
+                            max_attempts=max(1, via_attempts),
+                        )
+                        attempts_log.append(
+                            f"via2_{tag}_m{cm:.3f}_ik:{leg2.message}"
+                        )
+                        last_dt = float(leg2.dt_s)
+                        if leg2.ok:
+                            break
+                except Exception as exc:  # noqa: BLE001
+                    attempts_log.append(f"via2_{tag}_ik_err:{exc}")
+            if leg2 is not None and leg2.ok:
+                if execute_waypoints is not None:
+                    execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
+                    execute_waypoints(leg2.waypoints_rad, float(leg2.dt_s))
+                    q_hold = _clamp_joints(leg2.waypoints_rad[-1])
+                    return _ok(
+                        q_hold.reshape(1, 6),
+                        dt_s=float(leg1.dt_s),
+                        message=(
+                            f"ok|strategy=via_standoff|clearance_m={clearance_f:.3f}|"
+                            f"yaw_rad={yaw:.2f}|via_attempts={via_legs_started}|"
+                            f"partial_execs={partial_execs}|"
+                            f"elapsed_s={time.monotonic() - t0:.2f}|already_executed"
+                        ),
+                    )
+                waypoints = _concat_waypoints(
+                    leg1.waypoints_rad, leg2.waypoints_rad
+                )
+                return _ok(
+                    waypoints,
+                    dt_s=float(leg1.dt_s),
+                    message=(
+                        f"ok|strategy=via_standoff|clearance_m={clearance_f:.3f}|"
+                        f"yaw_rad={yaw:.2f}|via_attempts={via_legs_started}|"
+                        f"elapsed_s={time.monotonic() - t0:.2f}"
+                    ),
+                )
+
+            if execute_waypoints is not None:
+                execute_waypoints(leg1.waypoints_rad, float(leg1.dt_s))
+                partial_execs += 1
+                q_cur = q_mid
+                tip_start = tip_mid
+                progressed = True
+                attempts_log.append(f"partial_via1_{tag}:executed")
                 break
 
         if _timed_out() and not allow_overtime:
