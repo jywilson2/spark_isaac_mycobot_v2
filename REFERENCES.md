@@ -5,6 +5,25 @@ Originally collected for `spark_isaac_mycobot_demo`; retained for hardware, ROS 
 and RL background. Prefer classical IK + residual learning references in [spec.md](spec.md);
 ignore v1-specific paths such as `spark_verify_pkg` unless you are reading legacy notes.
 
+When Phase 1 (or later phase) implementation libraries change, update this file **and** the
+README “Phase N libraries” section in the same change set (see `spec.md` § Documentation Maintenance).
+
+---
+
+## Phase 1 implementation libraries
+
+| Library | Docs / source | How Phase 1 uses it |
+|---|---|---|
+| [NumPy](https://numpy.org/doc/stable/) | Array API, linalg | FK/IK math, Jacobian DLS, workspace stratification, metrics aggregates |
+| [PyYAML](https://pyyaml.org/wiki/PyYAMLDocumentation) | `yaml.safe_load` | Robot / IK / drive / workspace configs under `configs/` |
+| [pytest](https://docs.pytest.org/en/stable/) | Fixtures, asserts | `tests/test_*.py` Phase 1 contracts (including even workspace coverage + 160 °/s motion cap) |
+| [Isaac Sim docs](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit / Articulation / URDF importer | Host viz: import MyCobot, animate IK at hardware joint speed, red target sphere |
+| [USD / pxr](https://openusd.org/release/api/usd_page_front.html) | `UsdGeom`, `UsdShade` | Target marker sphere + scene prims in Kit |
+| [mycobot_ros2](https://github.com/elephantrobotics/mycobot_ros2) | Vendor URDF/meshes | Prepared via `isaac_sim/urdf_utils.py` for rendered Phase 1 |
+| [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) | Reach 280 mm, max joint speed 160 °/s | `configs/robot/workspace.yaml`, GUI servo rate limit |
+
+v1 even-coverage reference: `spark_isaac_mycobot_demo/isaac_lab/mdp_core.py` (cylindrical annulus + stratified demo bins).
+
 ---
 
 ## 1. MyCobot 280 hardware (Elephant Robotics)

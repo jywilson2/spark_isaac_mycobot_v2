@@ -4,54 +4,73 @@ Last updated: **2026-07-11**
 
 ## One-paragraph summary
 
-**Phase 1 classical IK baseline is complete.** URDF forward kinematics, damped least-squares numerical IK, and deterministic validation are implemented and covered by pytest (19 passed). Baseline evaluation over **1000** workspace-filtered reachable poses reports **99.9%** success (sim/URDF metrics only — see `docs/phase1_baseline.md`). Remote is configured as `git@github.com:jywilson2/spark_isaac_mycobot_v2.git` (create the empty GitHub repo if missing, then push). Phase 2 supervised residual is next.
+**Phase 1 (Classical IK Baseline) is complete and verified** on the DGX Spark host: NumPy FK / DLS IK / validation, ≥1000-pose stratified workspace metrics, host Isaac Sim metrics+viz (red→green target sphere on EE contact, joint motion ≤160 °/s), and unified verification (`./scripts/run_verification.sh ci|spark`). Remote: `git@github.com:jywilson2/spark_isaac_mycobot_v2.git`. **Next:** adopt a **four-phase** plan — Phase 2 geometry + collision-aware planning, then supervised residual (Phase 3) and SAC residual (Phase 4).
 
 ## Current phase
 
-**Phase 1 complete** — next: Phase 2 supervised residual (`train_supervised.py` / data generation).
+| Phase | Name | Status |
+|-------|------|--------|
+| **1** | Classical IK baseline (FK, DLS, validation, Isaac viz) | **Complete** |
+| **2** | Geometry + collision-aware planning | **Next** (branch `wip_phase2`) |
+| **3** | Supervised residual `Δq` | Not started (was former Phase 2) |
+| **4** | SAC residual RL (Isaac Lab) | Not started (was former Phase 3) |
+| ROS 2 | Dry-run node → gated hardware | Not started |
 
 ## Checklist
 
 | Item | Status |
 |------|--------|
 | Repo layout / configs / stubs | Done |
-| `git init` + `origin` remote | Done (`wip_phase1` pushed; `main` at prior tip) |
-| Multi-root `.code-workspace` | Done |
-| Ownership / `chmod +x` scripts | Done |
-| URDF FK (vendor + kinematics asset) | Done |
-| GitHub Actions `pytest` | Done |
-| `LICENSE` (Apache-2.0) | Done |
-| Numerical IK (DLS) + Jacobian | Done |
-| Validation (`validation.yaml`) | Done |
+| URDF FK + DLS IK + validation | Done |
 | Phase 1 baseline ≥1000 poses | Done (`docs/phase1_baseline.md`) |
-| Phase 2 / 3 / hardware | Not started |
+| Even workspace sampling (12×4×5 bins) | Done |
+| Host Isaac Sim Phase 1 viz | Done (`scripts/host/run_phase1_isaac.sh`) |
+| Target sphere red→green on contact | Done |
+| Host Isaac smoke (TDD) | Done — `./scripts/run_verification.sh spark` |
+| Expected Kit warnings catalogued | Done — README § Expected Isaac Sim launch warnings |
+| Phase 2 geometry / planning | In progress on `wip_phase2` |
+| Phase 3 / 4 / hardware | Not started |
 
 ## How to open in Cursor
 
-**File → Open Workspace from File…** → `spark_isaac_mycobot_v2.code-workspace`  
-(or open a new window on this folder). Work in the **v2** root; use the v1 folder only as reference.
+**File → Open Workspace from File…** → `spark_isaac_mycobot_v2.code-workspace`
 
 ## Environment notes
 
+**Container (metrics / unit tests):**
+
 ```bash
 source scripts/source_container_env.sh
-./scripts/download_mycobot_ros2.sh   # symlink/clone vendor URDF+meshes
-PYTHONPATH=src pytest tests -q
-bash scripts/run_phase1_baseline.sh  # tests + ≥1000-pose metrics
+./scripts/download_mycobot_ros2.sh
+PYTHONPATH=src:. pytest tests -q
+bash scripts/run_phase1_baseline.sh
+./scripts/run_verification.sh ci
 ```
 
-If git reports dubious ownership:  
-`git config --global --add safe.directory /workspaces/isaac_ros-dev/src/spark_isaac_mycobot_v2`  
-(or keep using env `GIT_CONFIG_COUNT` / `safe.directory` as in CI-less shells).
+**Host (Isaac Sim GUI — watch the arm move):**
+
+```bash
+cd /home/jywilson/workspaces/isaac_ros-dev/src/spark_isaac_mycobot_v2
+export ISAACSIM_PATH="${ISAACSIM_PATH:-$HOME/isaacsim}"
+./scripts/host/run_phase1_isaac.sh --skip-tests -- \
+  --num-poses 240 --visualize 48 --hold-s 0.4
+```
+
+Or from the Isaac ROS / Cursor container (delegates to host user + DISPLAY):
+
+```bash
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui
+```
+
+Target sphere: **red until EE tip contact**, then **green**.
 
 ## Suggested next steps
 
-1. Merge `wip_phase1` → `main` on GitHub when ready.
-2. Implement Phase 2 supervised residual data generation + MLP training stubs → real training.
-3. Wire Isaac Lab residual env only after Phase 2 acceptance tests pass.
-4. Keep hardware paths dry-run until `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
-5. Align `.cursorrules` / `spec.md` host-vs-container Isaac guidance with how you actually launch Sim/Lab.
+1. Land Phase 1 on `main` (this push).
+2. On `wip_phase2`: four-phase renumber + geometry/planning foundation.
+3. Keep hardware dry-run until `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
+4. Do not claim sub-mm real-world accuracy without hardware measurements.
 
 ## Related docs
 
-- [README.md](README.md) · [spec.md](spec.md) · [CHANGES.md](CHANGES.md) · [docs/phase1_baseline.md](docs/phase1_baseline.md) · [docs/last_prompt.md](docs/last_prompt.md)
+- [README.md](README.md) · [spec.md](spec.md) · [CHANGES.md](CHANGES.md) · [docs/phase1_baseline.md](docs/phase1_baseline.md) · [docs/isaac_sim_host.md](docs/isaac_sim_host.md) · [docs/last_prompt.md](docs/last_prompt.md)

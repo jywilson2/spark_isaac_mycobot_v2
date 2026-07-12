@@ -148,6 +148,7 @@ spark_delegate_to_host() {
   echo "=== Delegating to Isaac Sim host (nsenter) ===" >&2
   echo "Host repo: ${host_repo}" >&2
   echo "Command:   ${host_script} $*" >&2
+  echo "Host user: ${host_user} (non-root via runuser when available)" >&2
   if [[ -n "${display}" ]]; then
     echo "DISPLAY:   ${display}" >&2
   fi
@@ -155,12 +156,81 @@ spark_delegate_to_host() {
     echo "XAUTHORITY: ${xauth}" >&2
   fi
 
-  nsenter -t 1 -m -- env \
-    SPARK_SKIP_HOST_DELEGATE=1 \
-    SPARK_REPO_ROOT="${host_repo}" \
-    HOME="${host_home}" \
-    USER="${host_user}" \
-    DISPLAY="${display}" \
-    XAUTHORITY="${xauth}" \
-    bash -lc "cd $(printf '%q' "${host_repo}") && bash $(printf '%q' "${host_script}") $(printf '%q ' "$@")"
+  local arg_str=""
+  if [[ $# -gt 0 ]]; then
+    arg_str="$(printf ' %q' "$@")"
+  fi
+
+  # Build the inner command (repo-relative script). Isaac Sim GUI needs the
+  # desktop session owner's UID so X11 MIT-MAGIC-COOKIE auth succeeds — v1 only
+  # set HOME/USER while remaining root, which often yields
+  # "Authorization required, but no authorization protocol specified".
+  local inner="cd $(printf '%q' "${host_repo}") && bash $(printf '%q' "${host_script}")${arg_str}"
+  local isaac_path="${ISAACSIM_PATH:-${host_home}/isaacsim}"
+  local isaac_py="${ISAACSIM_PYTHON_EXE:-}"
+
+  local -a ns_env=(
+    SPARK_SKIP_HOST_DELEGATE=1
+    SPARK_REPO_ROOT="${host_repo}"
+    SPARK_ALLOW_CONTAINER_ISAAC=0
+    HOME="${host_home}"
+    USER="${host_user}"
+    LOGNAME="${host_user}"
+    DISPLAY="${display}"
+    XAUTHORITY="${xauth}"
+    ISAACSIM_PATH="${isaac_path}"
+    ISAACSIM_PYTHON_EXE="${isaac_py}"
+    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
+  )
+
+  # Drop to the host desktop user when possible (X11 + writable home).
+  # Override with SPARK_HOST_RUN_AS_USER=0 to force root (debug only).
+  local run_as="${SPARK_HOST_RUN_AS_USER:-1}"
+
+  # Ensure the host user can write assets/logs created by earlier root smokes.
+  if [[ "${run_as}" == "1" ]]; then
+    nsenter -t 1 -m -- bash -lc \
+      "chown -R $(printf '%q' "${host_user}:${host_user}") \
+        $(printf '%q' "${host_repo}/assets") \
+        $(printf '%q' "${host_repo}/docs") 2>/dev/null || true"
+  fi
+
+  if [[ "${run_as}" == "1" ]] && nsenter -t 1 -m -- id -u "${host_user}" >/dev/null 2>&1; then
+    if nsenter -t 1 -m -- test -x /usr/sbin/runuser; then
+      nsenter -t 1 -m -- /usr/sbin/runuser -u "${host_user}" -- env "${ns_env[@]}" \
+        bash -lc "${inner}"
+      return $?
+    fi
+    if nsenter -t 1 -m -- test -x /usr/bin/setpriv; then
+      local host_uid host_gid
+      host_uid="$(nsenter -t 1 -m -- id -u "${host_user}")"
+      host_gid="$(nsenter -t 1 -m -- id -g "${host_user}")"
+      nsenter -t 1 -m -- /usr/bin/setpriv \
+        --reuid="${host_uid}" --regid="${host_gid}" --init-groups -- \
+        env "${ns_env[@]}" bash -lc "${inner}"
+      return $?
+    fi
+    echo "WARNING: runuser/setpriv unavailable; continuing as root (GUI X11 may fail)." >&2
+  fi
+
+  nsenter -t 1 -m -- env "${ns_env[@]}" bash -lc "${inner}"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  # CLI: ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh [args...]
+  if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 <repo-relative-script> [args...]" >&2
+    exit 2
+  fi
+  _target="$1"
+  shift
+  export SPARK_REPO_ROOT="${SPARK_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+  export SPARK_HOST_USER="${SPARK_HOST_USER:-jywilson}"
+  export ISAACSIM_PATH="${ISAACSIM_PATH:-/home/${SPARK_HOST_USER}/isaacsim}"
+  if spark_in_isaac_ros_container && [[ "${SPARK_SKIP_HOST_DELEGATE:-0}" != "1" ]]; then
+    spark_delegate_to_host "${_target}" "$@"
+  else
+    cd "${SPARK_REPO_ROOT}"
+    bash "${_target}" "$@"
+  fi
+fi

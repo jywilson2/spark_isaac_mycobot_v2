@@ -1,0 +1,71 @@
+# Isaac Sim position-drive gains for MyCobot 280 M5.
+#
+# Elephant Robotics does **not** publish joint stiffness (N·m/rad) or damping
+# (N·m·s/rad) on product or docs pages. Vendor URDF effort/velocity limits are
+# also placeholders (effort=1000, velocity=0). Gains below are derived from the
+# published mechanical specs so the URDF importer can create valid actuators
+# without suppressing warnings (spec.md Acceptance #8).
+#
+# Vendor sources (2023/2025 M5 family — same payload/reach/accuracy):
+#   https://www.elephantrobotics.com/en/mycobot-280-m5-2023-specificatons-en/
+#   https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/
+#
+# Published inputs used:
+#   working_radius_m:           0.280 m
+#   payload_limit_kg:           0.250 kg
+#   arm_mass_kg:                ~0.800–0.850 kg (use 0.850 for M5 ENSP)
+#   positioning_accuracy_m:     ±0.0005 m
+#   joint_max_speed_deg_s:      160 °/s
+#   power_bus:                  12 V · 5 A (60 W)
+#
+# Derivation (SI units; proximal worst-case at full reach):
+#   τ_payload = m_p · g · L
+#             = 0.250 · 9.81 · 0.280 ≈ 0.687 N·m
+#   τ_arm     ≈ (0.5 · m_arm) · g · (L/2)   # half mass at mid-reach COM
+#             = 0.425 · 9.81 · 0.140 ≈ 0.584 N·m
+#   τ_grav    ≈ τ_payload + τ_arm ≈ 1.27 N·m
+#
+# Tip accuracy → joint error budget at radius L:
+#   δq ≈ ε / L = 0.0005 / 0.280 ≈ 0.00179 rad
+#
+# Stiffness so gravity load stays within accuracy budget:
+#   K ≥ τ_grav / δq ≈ 1.27 / 0.00179 ≈ 710 N·m/rad
+#   → stiffness_nm_per_rad = 710
+#
+# Effective inertia (extended arm + payload):
+#   I_p   = m_p · L² = 0.250 · 0.280² ≈ 0.0196 kg·m²
+#   I_arm ≈ (1/3) · m_arm · L_eff² with L_eff≈0.20 m
+#         ≈ (1/3) · 0.850 · 0.040 ≈ 0.0113 kg·m²
+#   I     ≈ 0.031 kg·m²
+#
+# Critical damping D_c = 2 √(K · I) = 2 √(710 · 0.031) ≈ 9.4 N·m·s/rad
+# Slight overdamping (ζ=1.2) for servo-like settling without oscillation:
+#   damping_nm_s_per_rad = 1.2 · 9.4 ≈ 11.3 → 11.3
+#
+# These are **sim drive gains** for Isaac position control, not measured
+# hardware servo PID. Uniform across joints (importer override API is scalar).
+
+units:
+  stiffness: N_m_per_rad
+  damping: N_m_s_per_rad
+
+# Applied via URDFImporterConfig.override_joint_stiffness / _damping
+stiffness_nm_per_rad: 710.0
+damping_nm_s_per_rad: 11.3
+
+# Echo of vendor kinematics used in derivation (also in mycobot_280.yaml)
+derivation:
+  source: elephant_robotics_mycobot_280_m5_specs
+  vendor_publishes_drive_gains: false
+  working_radius_m: 0.280
+  payload_limit_kg: 0.250
+  arm_mass_kg: 0.850
+  positioning_accuracy_m: 0.0005
+  gravity_m_s2: 9.81
+  tau_payload_nm: 0.687
+  tau_arm_nm: 0.584
+  tau_grav_nm: 1.271
+  joint_error_budget_rad: 0.001786
+  inertia_eff_kg_m2: 0.031
+  damping_ratio_zeta: 1.2
+  joint_max_speed_deg_s: 160.0

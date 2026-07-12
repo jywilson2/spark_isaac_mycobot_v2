@@ -153,3 +153,207 @@ Review list of everything created or copied into `spark_isaac_mycobot_v2` during
 | `scripts/host/install_isaac_lab.sh` | **Fixed** | Same; Phase 3 wording; drops missing verify_install.py calls |
 
 **Review recommended:** residual/workspace validation edge cases; host vs container Isaac guidance in `.cursorrules` / `spec.md` (this Cursor session still lacks `python.sh` in-container).
+
+---
+
+## Host Isaac Sim Phase 1 viz (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `isaac_sim/urdf_utils.py` | **Created** | package:// + COLLADA GUID fixes (from v1 lessons) |
+| `isaac_sim/urdf_import.py` | **Created** | Isaac Sim 6 URDF importer helpers |
+| `isaac_sim/run_phase1_ik_viz.py` | **Created** | Rendered DLS IK animation + target marker |
+| `isaac_sim/convert_urdf_to_usd.py` | **Created** | Headless URDF→USD |
+| `scripts/host/launch_isaac_sim.sh` | **Created** | Host Kit GUI launcher |
+| `scripts/host/run_phase1_isaac.sh` | **Created** | Host Phase 1 metrics + viz |
+| `scripts/convert_urdf_to_usd.sh` | **Wired** | Uses host Isaac python.sh |
+| `scripts/run_phase1_baseline.sh` | **Updated** | `--with-isaac` / `PHASE1_WITH_ISAAC=1` |
+| `scripts/host/env.isaac_host.sh` | **Updated** | PYTHONPATH includes `src` + repo root |
+| `tests/test_urdf_utils.py` | **Created** | Prep helpers without Kit |
+| `docs/isaac_sim_host.md` | **Created** | Host launch / Phase 1 render guide |
+
+**Review recommended:** articulation API differences across Isaac Sim builds (`SingleArticulation` vs legacy); first host run should confirm joint name mapping.
+
+---
+
+## Unified Phase 1 metrics + Isaac viz (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `kinematics/baseline_eval.py` | **Updated** | `return_trials` + `select_trials_for_visualization` |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Same run: metrics → write reports → animate subset |
+| `scripts/host/run_phase1_isaac.sh` | **Updated** | No separate NumPy metrics pass; forwards `--num-poses` / `--visualize` |
+| `docs/isaac_sim_host.md` | **Updated** | Single-command metrics+viz docs |
+
+---
+
+## README command reference (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `README.md` | **Updated** | New § Commonly used commands (env, Phase 1 NumPy/Isaac, later phases, ROS 2) |
+
+---
+
+## Prompt-log every-turn fix (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `.cursorrules` | **Updated** | `docs/last_prompt.md` mandatory every user turn (incl. Q&A / no-diff) |
+| `spec.md` | **Updated** | Documentation Maintenance: last_prompt decoupled from code-change checklist |
+| `docs/last_prompt.md` | **Backfilled** | Restored omitted clarification prompt (16:07); logged this fix |
+
+---
+
+## Host Isaac Phase 1 smoke verification (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `scripts/download_mycobot_ros2.sh` | **Fixed** | Relative `../../mycobot_ros2` symlink (absolute `/workspaces` broke on host) |
+| `scripts/host/spark_host_exec.sh` | **Fixed** | CLI mode; forward `ISAACSIM_PATH`; no empty argv |
+| `scripts/host/run_phase1_isaac.sh` | **Fixed** | Filter empty viz args |
+| `scripts/host/smoke_phase1_isaac.sh` | **Created** | Headless (default) / `--gui` short smoke |
+| `tests/test_phase1_isaac_smoke.py` | **Created** | Gated by `SPARK_RUN_ISAAC_SMOKE=1`; delegates via host exec in Docker |
+
+**Verified:** host Kit smoke PASSED (20 poses, 5 viz, success_rate=1.0) via `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh`.
+
+**Review recommended:** URDF import warns about missing joint stiffness/damping (cosmetic for viz); nested USD output path `assets/robots/mycobot_280_m5/mycobot_280_m5/` from importer.
+
+---
+
+## Spec: host Isaac TDD requirement (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `spec.md` | **Updated** | Phase 1 Acceptance #7 + Step 2 order #9 + Important Notes: host Isaac smoke from independent host shell |
+| `.cursorrules` | **Updated** | TDD mandate references spec Acceptance #7 |
+
+---
+
+## No warning suppression + GUI clarification (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `spec.md` | **Updated** | Acceptance #8: resolve warnings at source; clarify visualize vs GUI |
+| `.cursorrules` | **Updated** | Ban warning suppression |
+| `isaac_sim/urdf_import.py` | **Fixed** | `override_joint_stiffness` / `_damping` via derived config |
+| `scripts/host/smoke_phase1_isaac.sh` | **Updated** | Explicit headless vs `--gui` messaging |
+| `tests/test_phase1_isaac_smoke.py` | **Updated** | Assert importer sets drive gains |
+
+---
+
+## Derived joint drives + README command sync (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `configs/robot/joint_drives.yaml` | **Created** | Vendor does not publish K/D; derived K=710 N·m/rad, D=11.3 N·m·s/rad |
+| `isaac_sim/joint_drives.py` | **Created** | Load + recompute helpers |
+| `isaac_sim/urdf_import.py` | **Updated** | Loads gains from YAML (replaces 200/20 placeholders) |
+| `tests/test_joint_drives.py` | **Created** | Config load + derivation checks |
+| `configs/robot/mycobot_280.yaml` | **Updated** | arm mass, max speed pointers |
+| `configs/robot/joint_limits.yaml` | **Updated** | velocity limits → vendor 160 °/s |
+| `README.md` | **Updated** | Common commands: visualize≠GUI, headless, smoke env knobs |
+| `docs/isaac_sim_host.md` | **Updated** | Drive-gain section + GUI notes |
+| `spec.md` | **Updated** | `joint_drives.yaml` + Acceptance #8 / velocity limits |
+| `STATUS.md` | **Updated** | Drive-gain status line |
+
+**Review recommended:** Re-run host smoke after drive-gain change so USD re-imports (`smoke_phase1_isaac.sh` without `--keep-prepared`). On a Spark desktop with Kit, also run `--gui` after headless succeeds. Confirm Kit no longer warns about missing stiffness/damping with K=710 / D=11.3.
+
+---
+
+## CI headless vs Spark GUI verification policy (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `spec.md` | **Updated** | Acceptance #7 tiered: remote CI = headless; Spark+Isaac after headless → required GUI |
+| `.cursorrules` | **Updated** | Same tiered TDD mandate |
+| `README.md` | **Updated** | Smoke policy under commonly used commands |
+| `docs/isaac_sim_host.md` | **Updated** | Verification policy table |
+| `scripts/host/smoke_phase1_isaac.sh` | **Updated** | Header documents CI vs Spark GUI policy |
+| `tests/test_phase1_isaac_smoke.py` | **Updated** | Docstring + policy regression assert |
+| `STATUS.md` | **Updated** | Host smoke checklist line |
+
+---
+
+## Agent GUI via nsenter + runuser (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `scripts/host/spark_host_exec.sh` | **Updated** | Default `runuser -u $SPARK_HOST_USER` after nsenter; chown assets/docs; `SPARK_HOST_RUN_AS_USER=0` to force root |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | `--auto-exit` so GUI smoke does not wait for window close |
+| `scripts/host/smoke_phase1_isaac.sh` | **Updated** | `--gui` passes `--auto-exit` unless `PHASE1_SMOKE_KEEP_GUI_OPEN=1` |
+| `spec.md` / `README.md` / `docs/isaac_sim_host.md` / `.cursorrules` | **Updated** | Agent can run GUI without manual host shell |
+| `tests/test_phase1_isaac_smoke.py` | **Updated** | Asserts runuser + auto-exit wiring |
+
+**Verified:** `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui` → PASSED (uid=jywilson, X11 OK, auto-exit).
+
+**Review recommended:** v1 only set `HOME`/`USER` as root (no UID drop). Keep repo assets writable for the host user; spark_host_exec now chowns `assets/` + `docs/` before runuser.
+
+---
+
+## Red target sphere (v1-style) (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Always-red 12 mm target sphere (v1 RGB 0.95/0.05/0.05) |
+| `tests/test_target_marker.py` | **Created** | Asserts radius/color constants |
+| `README.md` / `docs/isaac_sim_host.md` | **Updated** | Manual multi-minute GUI command |
+
+---
+
+## Hardware-speed GUI + even workspace targets + Phase 1 library docs (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `configs/robot/workspace.yaml` | **Created** | v1 cylindrical envelope + 160 °/s |
+| `workspace_sampling.py` / `baseline_eval.py` | **Updated** | Even bin-filling reachable FK targets |
+| `validation.py` / `validation.yaml` | **Updated** | Horizontal working radius (not 3D ball) |
+| `run_phase1_ik_viz.py` | **Updated** | Joint motion ≤ vendor 160 °/s |
+| `tests/test_workspace_sampling.py` / `test_servo_speed.py` | **Created** | Coverage + speed-cap tests |
+| `README.md` / `REFERENCES.md` | **Updated** | Phase 1 libraries tables |
+| `spec.md` / `.cursorrules` | **Updated** | Library doc maintenance mandate |
+
+**Review recommended:** Re-run host GUI smoke after servo-speed change; confirm arm eases to red targets at ~160 °/s and targets span the annulus.
+
+---
+
+## Collision policy + Isaac warning catalog (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `spec.md` | **Updated** | Explicit Phase 1: no path/obstacle collision; Acceptance #8 allows documenting benign Kit warnings |
+| `README.md` | **Updated** | § Expected Isaac Sim launch warnings (safe to ignore) |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Drop `CreateDisplayColorAttr` (fixes Fabric indices warning); marker documented visual-only |
+| `tests/test_target_marker.py` | **Updated** | Asserts no displayColor-without-indices |
+| `STATUS.md` | **Updated** | Collision limitation called out |
+
+**Review recommended:** After next host smoke, confirm `primvars:displayColor:indices` no longer appears for `/World/IkTarget`.
+
+---
+
+## Target contact color + denser workspace points (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `isaac_sim/target_marker.py` | **Created** | Red/green RGB + `ee_contacts_target` (meters) |
+| `isaac_sim/run_phase1_ik_viz.py` | **Updated** | Sphere red→green on EE tip within 12 mm; default `--visualize` 48 |
+| `configs/robot/workspace.yaml` | **Updated** | Stratified bins 12×4×5 = 240 cells |
+| `scripts/host/smoke_phase1_isaac.sh` | **Updated** | Defaults 240 poses / 48 visualized |
+| `tests/test_target_marker.py` / `test_workspace_sampling.py` | **Updated** | Contact + bin-count contracts |
+| `spec.md` / `README.md` / `STATUS.md` | **Updated** | Contact color + denser targets |
+
+**Review recommended:** Confirm green fires only when FK tip enters the sphere (not on IK-success alone for failed trials).
+
+---
+
+## Unified CI vs Spark verification script (2026-07-11)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `scripts/run_verification.sh` | **Created** | Modes `ci` (headless) and `spark` (ci + required GUI) |
+| `spec.md` | **Updated** | Acceptance #7 points at the script |
+| `.cursorrules` | **Updated** | Agents must run `spark` on this host after Phase 1/Isaac changes |
+| `README.md` | **Updated** | Verification section at top of common commands |
+| `tests/test_run_verification.py` | **Created** | Script + doc contract |
+
+**Both places:** `spec.md` = authoritative policy; `.cursorrules` = agent must invoke which mode when.

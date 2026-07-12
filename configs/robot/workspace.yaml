@@ -1,0 +1,17 @@
+# Cylindrical reach envelope for even IK target sampling (meters).
+# Matches v1 isaac_lab/mdp_core.py MIN/MAX_BLOCK_REACH and EE Z band.
+# Vendor working radius = 280 mm (Elephant Robotics myCobot 280).
+
+min_reach_m: 0.12
+max_reach_m: 0.280
+min_z_m: 0.08
+max_z_m: 0.22
+
+# Stratified bins for even workspace coverage (denser than v1 8×3×4 demo).
+# Total separate 3D cells = 12 × 4 × 5 = 240.
+azimuth_bins: 12
+radius_bins: 4
+z_bins: 5
+
+# Vendor "Joint Maximum Speed" — used for GUI articulation motion
+max_joint_speed_deg_s: 160.0

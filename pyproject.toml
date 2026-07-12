@@ -30,4 +30,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
+markers = [
+  "isaac: optional host Isaac Sim smoke (SPARK_RUN_ISAAC_SMOKE=1)",
+]

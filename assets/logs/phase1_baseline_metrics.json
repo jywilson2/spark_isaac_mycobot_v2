@@ -1,22 +1,21 @@
 {
-  "n_poses": 1000,
+  "n_poses": 24,
   "seed": 0,
-  "urdf": "assets/urdf/mycobot_280_m5_kinematics.urdf",
+  "urdf": "/home/jywilson/workspaces/isaac_ros-dev/src/spark_isaac_mycobot_v2/assets/urdf/mycobot_280_m5_kinematics.urdf",
+  "sampling": "stratified",
   "filter_workspace_radius_m": 0.28,
   "seed_jitter_rad": 0.15,
-  "success_rate": 0.999,
-  "n_success": 999,
-  "n_failure": 1,
-  "validation_ok_among_reported_success": 999,
-  "median_position_error_m": 0.00011392604628530359,
-  "p95_position_error_m": 0.0008666759999411143,
-  "median_orientation_error_rad": 0.00025688084482827366,
-  "p95_orientation_error_rad": 0.007110228498957925,
-  "mean_iterations": 2.951,
-  "mean_solve_time_s": 0.00045955877799815423,
-  "failure_categories": {
-    "max_iterations_pose_and_orientation": 1
-  },
+  "success_rate": 1.0,
+  "n_success": 24,
+  "n_failure": 0,
+  "validation_ok_among_reported_success": 24,
+  "median_position_error_m": 0.00013079938810591684,
+  "p95_position_error_m": 0.0007406323119514027,
+  "median_orientation_error_rad": 0.00015832057686745158,
+  "p95_orientation_error_rad": 0.0067067896421721986,
+  "mean_iterations": 2.75,
+  "mean_solve_time_s": 0.0005908539583288075,
+  "failure_categories": {},
   "ik_config": {
     "solver": "damped_least_squares",
     "max_iterations": 100,
@@ -43,5 +42,8 @@
     "solve_time": "seconds",
     "joint_angles": "radians"
   },
-  "note": "Simulation / URDF-FK metrics only. Do not claim sub-millimeter real-world accuracy without hardware measurement."
+  "note": "Simulation / URDF-FK metrics only. Do not claim sub-millimeter real-world accuracy without hardware measurement. Default sampling fills cylindrical workspace bins evenly (v1-style).",
+  "isaac_viz": true,
+  "n_visualized": 4,
+  "generated_by": "`isaac_sim/run_phase1_ik_viz.py` / `scripts/host/run_phase1_isaac.sh`"
 }

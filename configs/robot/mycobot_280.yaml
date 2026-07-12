@@ -5,7 +5,10 @@ units:
   position: meters
 working_radius_m: 0.280
 payload_limit_kg: 0.250
+arm_mass_kg: 0.850  # vendor M5 ENSP (~800–850 g by SKU)
 nominal_repeatability_m: 0.0005
+joint_max_speed_deg_s: 160.0  # vendor "Joint Maximum Speed"
+# Position-drive K/D for Isaac: configs/robot/joint_drives.yaml (derived; vendor N/A)
 joint_names:
   - joint1
   - joint2

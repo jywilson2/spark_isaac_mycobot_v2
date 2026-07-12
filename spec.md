@@ -97,12 +97,14 @@ The learned system must not replace the IK solver. It must wrap around it.
 
 | Runtime | Runs Isaac Sim / Isaac Lab? | How agents and scripts execute |
 |---------|----------------------------|--------------------------------|
-| **DGX Spark host** (native shell after `isaac-ros activate`) | **Yes** | `./scripts/run_phase3_sac.sh` / host Isaac tools |
-| **Isaac ROS container** (Cursor attached) | **No** — no GPU sim binaries | Delegate via `scripts/host/spark_host_exec.sh` (`nsenter`) |
+| **DGX Spark host** (native shell where Isaac Sim is installed) | **Yes** | Phase 1 viz: `./scripts/host/run_phase1_isaac.sh`; GUI: `./scripts/host/launch_isaac_sim.sh`; Phase 3: Isaac Lab scripts |
+| **Isaac ROS container** (Cursor / `isaac-ros activate`) | Usually **No** GPU Kit | NumPy Phase 1–2 OK; for Sim/Lab use a host shell or `scripts/host/spark_host_exec.sh` |
 
-Do **not** assume Phase 3 failed because the container lacks `python.sh`. Override host repo path with `SPARK_HOST_REPO_ROOT` or host user with `SPARK_HOST_USER` (default `admin`) when needed.
+Prefer **host-direct** Isaac Sim. Do **not** assume Phase 3 failed because the container lacks `python.sh`. Override host repo path with `SPARK_HOST_REPO_ROOT` or host user with `SPARK_HOST_USER` (default `admin`) when needed. Set `SPARK_ALLOW_CONTAINER_ISAAC=1` only if Kit is mounted into the container.
 
-Daily workflow: host runs `isaac-ros activate` → Cursor restores this workspace → Phase 1–2 may run in the container venv → Phase 3 Isaac Lab runs on the host.
+`isaac-ros activate` is for the ROS development container / Cursor workflow; it is **not** a prerequisite for launching Isaac Sim on the host.
+
+Daily workflow: optional `isaac-ros activate` for editing → Phase 1 metrics in container or host → Phase 1 **rendered** IK and Phase 3 Isaac Lab on a **host** shell with Kit installed.
 
 ---
 
@@ -244,7 +246,8 @@ spark_isaac_mycobot_v2/          # residual adaptive IK for MyCobot 280
 │   ├── test_ik_validation.py
 │   ├── test_residual_bounds.py
 │   ├── test_dataset_schema.py
-│   └── test_ros2_message_contract.py
+│   ├── test_ros2_message_contract.py
+│   └── test_phase1_isaac_smoke.py   # gated: SPARK_RUN_ISAAC_SMOKE=1 (host Kit)
 ├── notebooks/
 │   ├── phase1_baseline_analysis.ipynb
 │   ├── phase2_residual_analysis.ipynb
@@ -370,7 +373,24 @@ Validation must check:
 - FK position error,
 - FK orientation error,
 - workspace bounds,
-- optional collision flag.
+- optional collision flag (**hook only** in Phase 1 — see below).
+
+### Phase 1 collision / obstacle policy (explicit)
+
+Phase 1 classical DLS IK **does not** assure that the EE or any link avoids the
+visual target marker (or other obstacles) while moving into position:
+
+- The solver returns a **goal** joint vector `q_sol` from a seeded numerical
+  search; it does **not** generate a collision-checked Cartesian or joint path.
+- Host viz interpolates joints in configuration space at ≤ vendor joint speed;
+  intermediate poses are **not** validated against the target sphere.
+- The `/World/IkTarget` sphere is **visual-only** (no PhysX collider). Links may
+  sweep through it; “contact” for red→green is geometric EE-tip distance only.
+- `validate_solution(..., collision=...)` accepts an **external** boolean hook
+  (`True` → reject with reason `"collision"`). Phase 1 never computes or passes
+  that flag. Self-collision / obstacle checking remains **future work** when a
+  geometry pipeline is available (spec Non-Negotiable #4: “self-collision if
+  available”).
 
 ## Phase 1 Metrics
 
@@ -395,6 +415,43 @@ Phase 1 is complete when:
 4. Baseline IK success/failure metrics are written to `docs/phase1_baseline.md`.
 5. The solver never returns an invalid joint vector as successful.
 6. All units are explicit: radians, meters, seconds.
+7. **Host Isaac Sim verification (tiered)** — use the unified script:
+
+```bash
+# Remote GitHub PR / CI (headless only; never GUI)
+./scripts/run_verification.sh ci
+# Optional Kit on a CI runner that has Isaac: ./scripts/run_verification.sh ci --with-isaac
+
+# DGX Spark host with Isaac Sim (pytest → headless smoke → required GUI)
+./scripts/run_verification.sh spark
+```
+
+   - **CI / remote GitHub PR:** `./scripts/run_verification.sh ci` — NumPy `pytest`; optional headless Isaac with `--with-isaac` / `SPARK_RUN_ISAAC_SMOKE=1`. **Do not** require a GUI window, `DISPLAY`, or `--gui` for PR merge gates.
+   - **DGX Spark host development (Isaac Sim installed):** `./scripts/run_verification.sh spark` — after CI-equivalent headless succeeds, **GUI smoke is required**. From the container this delegates via `spark_host_exec` + `runuser`. Do not treat headless-only success as sufficient on a Spark with Kit.
+8. **No warning suppression:** Isaac Sim / Kit / importer / Python warnings that appear during required Phase 1 host verification must be **resolved at the source** when they are caused by this repo (correct URDF, importer config, assets, environment). Do **not** mute, filter, or `warnings.filterwarnings` / log-level tricks to hide them. Example: missing joint drive stiffness/damping on URDF import must be fixed by supplying derived drive gains from `configs/robot/joint_drives.yaml` via importer `override_joint_stiffness` / `override_joint_damping` (Elephant Robotics does not publish K/D), not by suppressing the importer warning.
+
+   Benign **vendor/Kit/platform** warnings that cannot be fixed in this repository (audio device, gamepad remap, deferred stage subscription, absl/protobuf double-register, etc.) must be listed in [README.md](README.md) § **Expected Isaac Sim launch warnings (safe to ignore)** with a one-line rationale — still never silenced in code.
+
+Required low-level smoke entry points (also invoked by `run_verification.sh`):
+
+```bash
+# CI piece: headless
+./scripts/host/smoke_phase1_isaac.sh
+# Spark piece: GUI (after headless)
+./scripts/host/smoke_phase1_isaac.sh --gui
+# From container:
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui
+```
+
+Notes on “visualization” vs GUI:
+
+- `--visualize N` (and the smoke’s pose animation) means **animate N IK trials in the Kit stage**; it does **not** by itself open a window.
+- A visible GUI requires `smoke_phase1_isaac.sh --gui` and a usable `DISPLAY` on the host desktop session. CI and agent smokes default to `--headless` so they can run without a monitor.
+- Policy: **remote CI = headless**; **Spark host with Isaac Sim = headless then required GUI**.
+- **Agent / container GUI without manual shell:** `./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh --gui` enters the host mount via `nsenter`, then **`runuser -u $SPARK_HOST_USER`** (not root) so X11 cookies match the desktop session. Smoke passes `--auto-exit` so Kit closes after animation (set `PHASE1_SMOKE_KEEP_GUI_OPEN=1` to leave the window open). v1 only exported `HOME`/`USER` while remaining root — that often failed with “Authorization required…”.
+
+Vendor URDF + meshes must resolve on the host (relative `third_party/mycobot_ros2` symlink). NumPy-only `pytest` in the container remains required but is **not** a substitute for host Isaac Sim smoke when Kit is available.
 
 ---
 
@@ -856,6 +913,23 @@ joint_names:
   - joint6
 ```
 
+## `configs/robot/workspace.yaml`
+
+Cylindrical reach envelope for **even IK target coverage** (v1 stratified bins) and GUI servo rate:
+
+```yaml
+min_reach_m: 0.12
+max_reach_m: 0.280
+min_z_m: 0.08
+max_z_m: 0.22
+azimuth_bins: 12
+radius_bins: 4
+z_bins: 5
+max_joint_speed_deg_s: 160.0  # vendor Joint Maximum Speed
+```
+
+Total stratified cells = 12 × 4 × 5 = **240** separate workspace bins (denser than the original v1 8×3×4 demo grid). Phase 1 baseline default sampling fills these bins evenly with reachable FK poses. Isaac GUI motion interpolates joint targets at ≤ `max_joint_speed_deg_s`. The IK target sphere stays **red** until EE tip contact (≤ sphere radius), then turns **green** (`isaac_sim/target_marker.py`).
+
 ## `configs/robot/joint_limits.yaml`
 
 ```yaml
@@ -866,14 +940,26 @@ joint_limits_deg:
   joint4: [-165.0, 165.0]
   joint5: [-165.0, 165.0]
   joint6: [-179.0, 179.0]
+# Vendor published joint maximum speed (myCobot 280 family)
 velocity_limits_deg_s:
-  joint1: 30.0
-  joint2: 30.0
-  joint3: 30.0
-  joint4: 30.0
-  joint5: 30.0
-  joint6: 30.0
+  joint1: 160.0
+  joint2: 160.0
+  joint3: 160.0
+  joint4: 160.0
+  joint5: 160.0
+  joint6: 160.0
 ```
+
+## `configs/robot/joint_drives.yaml`
+
+Isaac Sim position-drive gains for URDF import. **Elephant Robotics does not publish** joint stiffness (N·m/rad) or damping (N·m·s/rad); vendor URDF `effort`/`velocity` fields are placeholders. Gains **must** be derived from published mechanical specs (payload, working radius, positioning accuracy, arm mass) and applied via importer `override_joint_stiffness` / `override_joint_damping` so warnings are fixed at the source (Acceptance #8) — never muted.
+
+```yaml
+stiffness_nm_per_rad: 710.0   # K ≥ τ_grav / (ε/L)
+damping_nm_s_per_rad: 11.3    # ζ · 2√(K I), ζ≈1.2
+```
+
+See the YAML header for the full SI derivation. These are **simulation drive gains**, not measured hardware servo PID.
 
 ## `configs/ik/validation.yaml`
 
@@ -993,7 +1079,8 @@ Required Phase 1 order:
 5. validation,
 6. tests,
 7. baseline script,
-8. baseline report.
+8. baseline report,
+9. host Isaac Sim verification (tiered): CI / remote PR = headless smoke only (`scripts/host/smoke_phase1_isaac.sh` / gated `tests/test_phase1_isaac_smoke.py`); on a DGX Spark with Isaac Sim, after headless succeeds, required GUI smoke (`./scripts/host/smoke_phase1_isaac.sh --gui` from a native desktop session), with fixes for any host-path / Kit / windowing issues found.
 
 ## Step 3 — Implement Phase 2
 
@@ -1067,8 +1154,13 @@ pip install -r requirements.txt
 # Run unit tests
 pytest tests
 
-# Run Phase 1
+# Run Phase 1 (NumPy metrics)
 bash scripts/run_phase1_baseline.sh
+
+# Phase 1 host Isaac Sim smoke (independent host shell — not the ROS container)
+./scripts/host/smoke_phase1_isaac.sh
+# From container: ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_phase1_isaac.sh
+# Gated: SPARK_RUN_ISAAC_SMOKE=1 pytest tests/test_phase1_isaac_smoke.py -q
 
 # Run Phase 2
 bash scripts/run_phase2_supervised.sh
@@ -1097,6 +1189,10 @@ ros2 launch residual_adaptive_ik_ros residual_ik.launch.py mode:=validation_only
 - Never silently ignore validation failures.
 - Never execute hardware motion from tests by default.
 - Never allow an RL policy to bypass validation.
+- After Phase 1 kinematics / Isaac host-script changes:
+  - Always run CI-equivalent checks (NumPy `pytest`; headless Isaac smoke when Kit is available).
+  - On a **DGX Spark host with Isaac Sim**, after headless succeeds, also run **GUI** smoke (`./scripts/host/smoke_phase1_isaac.sh --gui` from a native desktop session) and fix issues found. Remote GitHub PR CI must remain headless-only.
+- Do **not** suppress Isaac Sim / importer / Python warnings; fix the underlying cause (see Phase 1 Acceptance Criteria item 8).
 - Store all experiment metrics in machine-readable CSV or JSON.
 - Write reports in Markdown under `docs/`.
 - Use deterministic seeds for repeatable experiments.
@@ -1112,12 +1208,16 @@ Every change set that alters behavior, configs, training, or verification **must
 | Document | Purpose |
 |----------|---------|
 | [spec.md](spec.md) | Authoritative requirements (this file) |
-| [README.md](README.md) | How to run the current phase |
+| [README.md](README.md) | How to run the current phase; **Phase N libraries** table when dependencies / library usage change |
+| [REFERENCES.md](REFERENCES.md) | Curated links; **Phase N implementation libraries** section when libraries are added, removed, or used differently |
 | [STATUS.md](STATUS.md) | Operational status / blockers / next steps |
 | [docs/phaseN_*.md](docs/) | Phase reports when metrics change |
-| [docs/last_prompt.md](docs/last_prompt.md) | Append-only user-prompt progression log (`## BEGIN: <timestamp>`) |
 
-Agent enforcement of this checklist (including `last_prompt.md` prepend / never-delete retention and timestamped `## BEGIN` headers) lives in [`.cursorrules`](.cursorrules) § Documentation Quality.
+**Library documentation rule:** any change that introduces, removes, or materially changes how an external library is used for an implemented phase must update both the README phase-libraries section and [REFERENCES.md](REFERENCES.md) in the same change set.
+
+**Additionally**, [docs/last_prompt.md](docs/last_prompt.md) must be updated on **every** user agent prompt (including questions and clarification-only turns that change no code): prepend with `## BEGIN: <timestamp>`, never delete prior `## BEGIN` / `## END` blocks.
+
+Agent enforcement of this checklist (including `last_prompt.md` every-turn / never-delete retention) lives in [`.cursorrules`](.cursorrules) § Documentation Quality.
 
 Do **not** claim hardware accuracy beyond measured results. Simulation success thresholds (e.g. 1 mm position error) are **sim metrics** unless hardware tests confirm them.
 

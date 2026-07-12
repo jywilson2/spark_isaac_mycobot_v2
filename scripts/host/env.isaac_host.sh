@@ -35,7 +35,8 @@ spark_host_apply_env() {
 
   export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
   export FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}"
-  export PYTHONPATH="${SPARK_REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+  # residual_adaptive_ik lives under src/; isaac_sim package lives at repo root
+  export PYTHONPATH="${SPARK_REPO_ROOT}/src:${SPARK_REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
   if [[ -f /lib/aarch64-linux-gnu/libgomp.so.1 ]]; then
     case ":${LD_PRELOAD:-}:" in
@@ -53,21 +54,28 @@ spark_host_apply_env() {
 
 spark_host_check_prereqs() {
   local urdf="${SPARK_REPO_ROOT}/third_party/mycobot_ros2/mycobot_description/urdf/mycobot_280_m5/mycobot_280_m5.urdf"
+  local kin_urdf="${SPARK_REPO_ROOT}/assets/urdf/mycobot_280_m5_kinematics.urdf"
   local errors=0
 
   spark_host_apply_env || errors=$((errors + 1))
 
   if [[ ! -x "${ISAACSIM_PYTHON_EXE:-}" ]]; then
     echo "ERROR: Isaac Sim python.sh not found." >&2
+    echo "  export ISAACSIM_PATH=\"\$HOME/isaacsim\"" >&2
     echo "  export ISAACSIM_PATH=\"\$HOME/IsaacSim/_build/linux-aarch64/release\"" >&2
     echo "  ./scripts/isaac_sim_env.sh" >&2
     errors=$((errors + 1))
   fi
 
   if [[ ! -f "${urdf}" ]]; then
-    echo "ERROR: Submodule URDF missing: ${urdf}" >&2
-    echo "  ./scripts/fetch_mycobot_assets.sh" >&2
-    errors=$((errors + 1))
+    echo "WARNING: Vendor URDF+meshes missing: ${urdf}" >&2
+    echo "  ./scripts/download_mycobot_ros2.sh" >&2
+    if [[ ! -f "${kin_urdf}" ]]; then
+      echo "ERROR: Neither vendor nor kinematics URDF found." >&2
+      errors=$((errors + 1))
+    else
+      echo "  (kinematics-only asset present — NumPy IK OK; rendered import needs vendor meshes)" >&2
+    fi
   fi
 
   if [[ "${errors}" -gt 0 ]]; then

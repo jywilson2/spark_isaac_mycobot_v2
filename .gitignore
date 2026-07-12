@@ -33,6 +33,10 @@ assets/usd/*
 !assets/usd/README.md
 assets/meshes/*
 !assets/meshes/README.md
+assets/robots/*
+!assets/robots/.gitkeep
+assets/scenes/*
+!assets/scenes/.gitkeep
 
 # Vendor clone or symlink (optional; CI uses assets/urdf kinematics strip)
 third_party/mycobot_ros2/

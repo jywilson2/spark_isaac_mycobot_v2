@@ -5,10 +5,12 @@ joint_limits_deg:
   joint4: [-165.0, 165.0]
   joint5: [-165.0, 165.0]
   joint6: [-179.0, 179.0]
+# Vendor "Joint Maximum Speed" = 160 °/s (Elephant Robotics myCobot 280 family).
+# Conservative motion planning may use lower values; this is the published max.
 velocity_limits_deg_s:
-  joint1: 30.0
-  joint2: 30.0
-  joint3: 30.0
-  joint4: 30.0
-  joint5: 30.0
-  joint6: 30.0
+  joint1: 160.0
+  joint2: 160.0
+  joint3: 160.0
+  joint4: 160.0
+  joint5: 160.0
+  joint6: 160.0

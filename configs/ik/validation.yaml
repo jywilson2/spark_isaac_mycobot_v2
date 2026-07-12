@@ -5,6 +5,7 @@ reject_nan: true
 reject_inf: true
 enforce_joint_limits: true
 enforce_workspace_radius: true
+# Horizontal working radius (vendor 280 mm); cylindrical check, not 3D ball
 workspace_radius_m: 0.280
 # Experimental upper bound for residual experiments (never default on hardware)
 experimental_max_residual_deg: 2.0

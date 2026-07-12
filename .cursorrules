@@ -30,19 +30,23 @@ Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
 * Never generate legacy ROS 1 syntax (`rospy`, `roslaunch` XML).
 * Use `rclpy` and modern C++17 `rclcpp` only.
 * Prefer Isaac Sim Articulation API for sim control loops over heavy CPU-bound controller emulation.
-* **Host vs container:** Isaac Sim / Isaac Lab run on the DGX Spark **host**. The Isaac ROS container (Cursor) has no GPU sim binaries. Use `scripts/host/spark_host_exec.sh` to delegate; do not treat missing `python.sh` in the container as training failure.
-* Override host repo path with `SPARK_HOST_REPO_ROOT` / user with `SPARK_HOST_USER` when needed.
+* **Isaac Sim / Isaac Lab:** Prefer running directly on the DGX Spark **host** (`./scripts/host/launch_isaac_sim.sh`, `./scripts/host/run_phase1_isaac.sh`, Isaac Lab scripts). The Isaac ROS / Cursor container typically has no GPU Kit binaries — if `python.sh` is missing there, use host launch or `scripts/host/spark_host_exec.sh`; do not treat that as a training failure.
+* Override host repo path with `SPARK_HOST_REPO_ROOT` / user with `SPARK_HOST_USER` when needed. Opt into container Isaac with `SPARK_ALLOW_CONTAINER_ISAAC=1` only when Kit is actually mounted.
 
 ## Documentation Quality
 
 * Prefer tutorial-quality comments and docstrings: explain *why*, link to `spec.md` / `README.md` / `STATUS.md`, and state units (radians, meters, seconds) explicitly.
 * When changing behavior, configs, training, or verification, update in the same change set:
   * `spec.md` — authoritative requirements
-  * `README.md` — how to run the current phase
+  * `README.md` — how to run the current phase; **Phase N libraries** table when library usage changes
+  * `REFERENCES.md` — **Phase N implementation libraries** when libraries are added/removed/repurposed
   * `STATUS.md` — operational status / blockers / next steps
   * `docs/phaseN_*.md` — phase reports when metrics change
-  * `docs/last_prompt.md` — prepend the latest user prompt (progression log)
-* `docs/last_prompt.md` retention: never delete prior entries; prepend the new prompt at the top using `## BEGIN: YYYY-MM-DD HH:MM ±HH:MM` (local time with numeric offset); move the previous block under `# Old prompts:` preserving all `## BEGIN` / `## END` blocks.
+* **`docs/last_prompt.md` — every user prompt, every turn (mandatory):**
+  * Prepend the latest user prompt at the **start of the turn** (before other work), even for questions, clarifications, reviews, or doc-only replies that change no code.
+  * Never skip because the turn is “just a question,” brief, or produces no file diffs.
+  * Never delete prior entries; use `## BEGIN: YYYY-MM-DD HH:MM ±HH:MM` (local time with numeric offset); move the previous current block under `# Old prompts:` preserving all `## BEGIN` / `## END` blocks.
+  * If a prior turn in this conversation was omitted, backfill it in chronological order under `# Old prompts:` when fixing the log.
 * Store experiment metrics as CSV/JSON; write human reports under `docs/`.
 * Full documentation policy: `spec.md` § Documentation Maintenance.
 
@@ -52,10 +56,11 @@ Do not start Phase 3 RL code until Phase 1 acceptance tests pass.
 * Python: `pytest`. C++ (if added): `ament_cmake_gtest`.
 * During early scaffolding, `NotImplementedError` stubs with clear docstrings are allowed when matching [spec.md](spec.md) Step 1. Do not leave silent `# TODO` with no contract.
 * Never execute hardware motion from tests unless `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
-
+* Phase 1 kinematics / Isaac host-script changes: run **`./scripts/run_verification.sh`** — use **`ci`** for remote-PR-equivalent gates; on this **DGX Spark with Isaac Sim**, use **`spark`** (pytest → headless → required GUI). Do not stop after plain `pytest` alone on Spark. Remote GitHub PR CI must stay headless-only (`ci`). See [spec.md](spec.md) Phase 1 Acceptance Criteria item 7.
+* **Do not suppress warnings** to make tests look green. Resolve Isaac Sim / URDF / Python warnings at the source (config, assets, code). See [spec.md](spec.md) Phase 1 Acceptance Criteria item 8.
 ## Enumerated List of Changes
 
-* Always create a list summarizing all changes made.
+* Always create a list summarizing all changes made and include in CHANGES.md and in the prompt reply.
 * Highlight those changes where you would recommend further review.
 
 ## Honest Claims

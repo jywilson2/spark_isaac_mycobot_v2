@@ -102,16 +102,50 @@ def test_validate_rejects_oversized_residual(val_cfg, joint_limits, model):
     assert "residual_bound_exceeded" in result.reasons
 
 
+def test_validate_rejects_external_collision_flag_only(val_cfg, joint_limits, model):
+    """Phase 1 has no geometry collision — only an external hook (spec)."""
+    lo, hi = joint_limits
+    q = 0.5 * (lo + hi)
+    pose = forward_kinematics(q, model=model)
+    ok = validate_solution(
+        q,
+        pose,
+        val_cfg,
+        q_ik=q,
+        residual_q=np.zeros(6),
+        model=model,
+        joint_lower_rad=lo,
+        joint_upper_rad=hi,
+        collision=None,
+    )
+    assert ok.ok
+    bad = validate_solution(
+        q,
+        pose,
+        val_cfg,
+        q_ik=q,
+        residual_q=np.zeros(6),
+        model=model,
+        joint_lower_rad=lo,
+        joint_upper_rad=hi,
+        collision=True,
+    )
+    assert not bad.ok
+    assert "collision" in bad.reasons
+
+
 def test_validate_accepts_true_fk_pose_in_workspace(val_cfg, joint_limits, model):
     lo, hi = joint_limits
     rng = np.random.default_rng(1)
-    # Find a configuration whose EE is inside the workspace ball
+    # Find a configuration whose EE is inside the horizontal working radius
     q = None
     pose = None
     for _ in range(200):
         candidate = rng.uniform(lo, hi)
         p = forward_kinematics(candidate, model=model)
-        if float(np.linalg.norm(p.position_m)) <= float(val_cfg["workspace_radius_m"]):
+        if float(np.hypot(p.position_m[0], p.position_m[1])) <= float(
+            val_cfg["workspace_radius_m"]
+        ):
             q = candidate
             pose = p
             break
@@ -203,11 +237,19 @@ def test_jacobian_matches_finite_difference(model, joint_limits):
 
 
 def test_baseline_eval_small(model):
-    from residual_adaptive_ik.kinematics.baseline_eval import evaluate_baseline
+    from residual_adaptive_ik.kinematics.baseline_eval import (
+        evaluate_baseline,
+        select_trials_for_visualization,
+    )
 
-    metrics = evaluate_baseline(n_poses=50, seed=0, urdf_path=KINEMATICS_URDF)
+    metrics, trials = evaluate_baseline(
+        n_poses=50, seed=0, urdf_path=KINEMATICS_URDF, return_trials=True
+    )
     assert metrics["n_poses"] == 50
     assert 0.0 <= metrics["success_rate"] <= 1.0
     assert metrics["n_success"] + metrics["n_failure"] == 50
-    # With workspace filtering and mild seed jitter, expect a solid majority.
     assert metrics["success_rate"] >= 0.7
+    assert len(trials) == 50
+    shown = select_trials_for_visualization(trials, max_visualize=10)
+    assert 1 <= len(shown) <= 10
+    assert all(t.index >= 0 for t in shown)

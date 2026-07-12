@@ -1,5 +1,201 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-11 18:27 -07:00
+Update all relevant documentation with the current project status. Indicate which phase is completed and what are next steps.
+
+Commit and push the existing code to the git hub repo. Rebase and push into the remote repo main branch. Use a verbose commit message.
+
+Once this is done, create a new branch called wip_phase2. Then begin work on the "4-phase renumber". Use Nvidia libraries (as long as they are considered open source) or ROS libraries, and use your own judgement regarding which is more appropriate for this project.
+
+Iterate on the changes you make, fixing bugs/warnings as needed, and add additional tests for CI and Spark based testing as needed.
+
+Review the code and existing docuemntation for a level of inline documentation that maximizes its tutorial-quality. Update spec.md and/or .cursorrules to enforce this standard.
+
+When you are successful:
+
+- Commit the changes to the local and remote repo.
+- Update all relevant documentation, especially STATUS.md to describe what was completed.
+- Provide a command to run the run the IssacSim in GUI mode and see the resulting arm movement.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-11 18:13 -07:00
+During the implementation of residual IK will testing on hardware be required in order to process the feedback on motor position when actual position varies from that commanded by the IK?
+## END
+
+
+## BEGIN: 2026-07-11 18:10 -07:00
+Regarding this statement: "Avoid making MoveIt/cuRobo replace residual IK as the deployed brain."
+
+Is this even possible? I was imagining that residual IK does something that MoveIt/cuRobo cannot do.
+## END
+
+
+## BEGIN: 2026-07-11 18:03 -07:00
+Should we define a Phase 2 (and renumber the other Phases) to describe the implementation of geometry and planning?
+
+If so, would it make sense to use a more full-featured IK implementation to meet this requirement and what would you recommend?
+## END
+
+
+## BEGIN: 2026-07-11 18:00 -07:00
+What is "joint lerp"?
+## END
+
+
+## BEGIN: 2026-07-11 17:54 -07:00
+Can you elaborate on this statement "If you want true arm–obstacle avoidance later, that needs a separate geometry/path layer (not classical DLS alone)."
+## END
+
+
+## BEGIN: 2026-07-11 17:50 -07:00
+Is there anything in the IK that assures that the EE or any other part of the arm does not colide with the target 3D point as the EE is moving into position?
+
+Many warnings appear as IsaacSim is being launched. Can you address each one, and if they should be ignored, state why? If an IsaaacSim warning should be ignored, document this in a special section of README.md.
+## END
+
+
+## BEGIN: 2026-07-11 17:37 -07:00
+Modify the color of the ball to appear red until contact is made. Once contact is made change the color to greeen.
+
+Also increase the number of points the number of separate target 3D points to allow for more thorough testing.
+## END
+
+
+## BEGIN: 2026-07-11 17:30 -07:00
+Can you create a script that clearly delineates the tests to be run on the host versus for CI on a remote repo?
+
+Should there be something in .cursorrules that indicates which script should be run and when, or is this for spec.md?
+## END
+
+
+## BEGIN: 2026-07-11 17:24 -07:00
+Why wasn't the GUI test run automatically after the CI tests passed?
+
+Also, what test was skipped in "40 passed, 1 skipped"?
+## END
+
+
+## BEGIN: 2026-07-11 17:19 -07:00
+For GUI testing, make the simulated servoes move in speeds that are the same as that of the real arm?
+
+Modify the tests to make sure that the 3D points used as the IK target are distributed evenly around the space of the maximum range of the arm. This was also a requirement in V1, so my may want to look there for a reference.
+
+Can you document all of the libraries used for implementation of Phase 1 and describe how they were used in @v2 residual IK (active)/README.md . Update @v2 residual IK (active)/REFERENCES.md as well. Update spec.md and/or .cursorrules, if needed, to require this step for all applicable changes.
+## END
+
+
+## BEGIN: 2026-07-11 17:10 -07:00
+When you say "Kit" what does this mean?
+## END
+
+
+## BEGIN: 2026-07-11 17:09 -07:00
+What does "--skip-tests" and "--hold-s" do?
+## END
+
+
+## BEGIN: 2026-07-11 17:07 -07:00
+As was done in V1, can you highlight the target point in 3D space with a small red sphere?
+
+Also, can you provide the command I would need to run the GUI test manually, but for at least a few minutes of runtime?
+## END
+
+
+## BEGIN: 2026-07-11 17:04 -07:00
+Nice work! Can you run the CI tests, and then the host GUI version of the tests?
+## END
+
+
+## BEGIN: 2026-07-11 17:01 -07:00
+Is there a way for you to run the GUI testing after a change, without my manual intervention? Can you use nsenter with a non-root UID? I believe that the "v1 demo" project did just that.
+## END
+
+
+## BEGIN: 2026-07-11 16:58 -07:00
+Okay, I agree.
+
+However, performing GUI testing should be required after CI tests have completed successfully *and* you are running on a system equipped with IsaacSIM. The idea is that only CI testing would be run for verification of a PR processed on a remote github repo, but full GUI testing would occur when engaged in develpment on a DGX Spark host machine.
+## END
+
+
+## BEGIN: 2026-07-11 16:53 -07:00
+Is it possible to use headless testing for CI level testing, and include GUI testing when in active development on a DGX Spark?
+## END
+
+
+## BEGIN: 2026-07-11 16:49 -07:00
+I am detecting an error on the host when running the command provided? Why wasn't this discovered during TDD level testing?
+## END
+
+
+## BEGIN: 2026-07-11 16:43 -07:00
+Please provide a host-only command for the "Review recommended" and include the parameter for visulization with a GUI.
+## END
+
+
+## BEGIN: 2026-07-11 16:38 -07:00
+Verify that the common commands section of @v2 residual IK (active)/README.md is current with recent commands changes.
+
+Perform the necessary research to obtain the missing joint stiffness and joint damping values. If you are unable to obtain these values from the vendor's website, derive accurate values from the hardware specification of the arm mechanics.
+## END
+
+
+## BEGIN: 2026-07-11 16:33 -07:00
+Add a requirement that all warnings should be resolved without suppression of the warning and update the appropriate documentation file (.cursorrules or spec.md, possibly).
+
+This wouild include the recent URDF import warning.
+
+When IsaacSim is run for testing with visualization enabled, why don't I see the GUI?
+## END
+
+## BEGIN: 2026-07-11 16:28 -07:00
+Can compose the last prompt as a @v2 residual IK (active)/spec.md requirement?
+## END
+
+## BEGIN: 2026-07-11 16:25 -07:00
+As part of your verification tests used for TDD, can you also execute with visualization in IsaacSim and so some from an independent host shell?
+
+If you notice any issues, make the appropriate fixes.
+## END
+
+## BEGIN: 2026-07-11 16:22 -07:00
+The command "isaac-ros activate" loads the Docker container. Why is this required?
+
+What does the --skip-tests option do exactly?
+## END
+
+## BEGIN: 2026-07-11 16:19 -07:00
+Is there a way to run a demo of Phase 1 without running the container?
+## END
+
+## BEGIN: 2026-07-11 16:18 -07:00
+It seems that all command scripts assume executio for the IsaacROS container. Is this true?
+## END
+
+## BEGIN: 2026-07-11 16:15 -07:00
+Certain prompts are not added to the prompt log. Please make the appropriate fixes for this.
+## END
+
+## BEGIN: 2026-07-11 16:14 -07:00
+Create a new section in @v2 residual IK (active)/README.md that lists commonly used commands, along with a detailed description of each. Include some insight on the typical use case for each command.
+## END
+
+## BEGIN: 2026-07-11 16:10 -07:00
+Can the script be modified to provide Phase 1 metrics with visualization? If so, make the changes and provide the command-line for testing.
+## END
+
+## BEGIN: 2026-07-11 16:07 -07:00
+I do not understand the purpose of this section:
+
+Phase 1 metrics + rendered IK viz:
+## END
+
+## BEGIN: 2026-07-11 16:02 -07:00
+Make the changes needed to allow Phase 1 to be run directly on the host with IsaacSim rendering. Also provide the command to execute IsaacSim from the host.
+## END
+
 ## BEGIN: 2026-07-11 14:11 -07:00
 Implement these suggested next steps and iterate as necessary until all tests pass.
 
@@ -9,8 +205,6 @@ You should be able to run IsaacSim and IsaacLab directly. If you have issues wit
 
 I modified .cursorrules a bit. Look it over and let me know what you think after you are finished with the above steps.
 ## END
-
-# Old prompts:
 
 ## BEGIN: 2026-07-11 14:06 -07:00
 Can you modify the last_prompt.md format to include the time/date of the prompt?

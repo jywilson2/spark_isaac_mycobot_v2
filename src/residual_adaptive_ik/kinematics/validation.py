@@ -149,10 +149,17 @@ def validate_solution(
 
             if bool(config.get("enforce_workspace_radius", True)):
                 radius = float(config.get("workspace_radius_m", 0.280))
-                # Workspace check applies to the *target* reachability ball.
-                tgt_r = float(np.linalg.norm(tgt_pos))
+                # Vendor "working radius" is horizontal reach (cylindrical), not a 3D ball.
+                # Matches configs/robot/workspace.yaml / v1 annulus sampling.
+                tgt_r = float(np.hypot(float(tgt_pos[0]), float(tgt_pos[1])))
                 if tgt_r > radius + 1e-9:
                     reasons.append("workspace_radius_exceeded")
+                min_z = config.get("workspace_min_z_m")
+                max_z = config.get("workspace_max_z_m")
+                if min_z is not None and float(tgt_pos[2]) < float(min_z) - 1e-9:
+                    reasons.append("workspace_z_below_min")
+                if max_z is not None and float(tgt_pos[2]) > float(max_z) + 1e-9:
+                    reasons.append("workspace_z_above_max")
 
     if collision is True:
         reasons.append("collision")
