@@ -292,10 +292,88 @@ def test_collision_yaml_recovery_defaults():
     assert float(cfg.get("plan_recovery_min_standoff_travel_m", 0)) >= 0.005
     assert float(cfg.get("plan_recovery_min_standoff_travel_m", 1)) <= 0.05
     assert float(cfg.get("min_plan_ok_rate", 0)) >= 1.0 - 1e-9
+    assert cfg.get("plan_recovery_prep_seed_enabled", False) is True
+    assert int(cfg.get("plan_recovery_prep_seed_max", 0)) >= 2
 
 
-def test_invalid_start_saturated_falls_through_to_vias():
-    """After home-escape saturates, recovery must try via standoffs (not loop forever)."""
+def test_try_move_to_preparatory_seed_open_loop_when_plan_fails():
+    """INVALID_START-style: planned move fails → open-loop to q_seed."""
+    from residual_adaptive_ik.planning.recovery import try_move_to_preparatory_seed
+    from residual_adaptive_ik.kinematics.urdf_model import get_default_model
+
+    class _AlwaysInvalidStart:
+        _interpolation_dt_s = 0.02
+
+        def plan_to_pose(self, *args, **kwargs):
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION",
+            )
+
+        def plan_to_joint_goal(self, *args, **kwargs):
+            return self.plan_to_pose()
+
+    executed: list[np.ndarray] = []
+
+    def _exec(wp, dt):
+        executed.append(np.asarray(wp, dtype=float).copy())
+
+    q0 = np.array([0.4, -0.2, 0.1, 0.0, 0.2, -0.1])
+    q_new, tag, failed = try_move_to_preparatory_seed(
+        q0,
+        planner=_AlwaysInvalidStart(),  # type: ignore[arg-type]
+        model=get_default_model(),
+        execute_waypoints=_exec,
+        allow_planned=True,
+        max_seeds=4,
+    )
+    assert q_new is not None
+    assert "open_loop" in tag
+    assert "prep_seed" in tag
+    assert len(executed) == 1
+    assert executed[0].shape[0] == 2
+    assert np.allclose(executed[0][0], q0)
+    # Should move toward a bank member (home or mid-home), not stay put.
+    assert float(np.linalg.norm(q_new - q0)) > 0.05
+    assert len(failed) >= 1
+
+
+def test_try_move_to_preparatory_seed_prefers_planned_when_ok():
+    from residual_adaptive_ik.planning.recovery import try_move_to_preparatory_seed
+    from residual_adaptive_ik.kinematics.urdf_model import get_default_model
+
+    class _PlanOk:
+        _interpolation_dt_s = 0.02
+
+        def plan_to_pose(self, q_start, tip, quat, *, max_attempts=4, obstacles=None):
+            q0 = np.asarray(q_start, dtype=float).reshape(6)
+            end = q0 + np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
+            return PlannedTrajectory(
+                waypoints_rad=np.vstack([q0, end]),
+                dt_s=0.02,
+                success=True,
+                backend="curobo",
+                message="ok|prep",
+            )
+
+    q0 = np.array([0.3, 0.0, 0.0, 0.0, 0.0, 0.0])
+    q_new, tag, _failed = try_move_to_preparatory_seed(
+        q0,
+        planner=_PlanOk(),  # type: ignore[arg-type]
+        model=get_default_model(),
+        allow_planned=True,
+        max_seeds=2,
+    )
+    assert q_new is not None
+    assert "planned" in tag
+    assert np.allclose(q_new, q0 + np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0]))
+
+
+def test_invalid_start_uses_prep_seed_then_falls_through_to_vias():
+    """Prep-seed bank then vias — not an infinite home-blend loop."""
 
     class _InvalidStartThenViaOk:
         _interpolation_dt_s = 0.02
@@ -316,6 +394,15 @@ def test_invalid_start_saturated_falls_through_to_vias():
 
         def plan_to_pose(self, q_start, tip, quat, *, max_attempts=4, obstacles=None):
             self.pose_calls += 1
+            # Prep-seed helper uses max_attempts=1; via legs use >1.
+            if int(max_attempts) <= 1:
+                return PlannedTrajectory(
+                    waypoints_rad=np.zeros((0, 6)),
+                    dt_s=0.02,
+                    success=False,
+                    backend="curobo",
+                    message="plan_failed:MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION",
+                )
             q0 = np.asarray(q_start, dtype=float).reshape(6)
             end = q0 + 0.05
             return PlannedTrajectory(
@@ -327,7 +414,7 @@ def test_invalid_start_saturated_falls_through_to_vias():
             )
 
     planner = _InvalidStartThenViaOk()
-    q0 = np.zeros(6)
+    q0 = np.array([0.35, -0.15, 0.1, 0.05, 0.1, -0.05])
     q1 = np.array([0.2, 0.1, -0.1, 0.0, 0.2, 0.0])
     marker = SphereObstacle(center_m=np.array([0.15, 0.0, 0.15]), radius_m=0.012)
     traj = plan_via_standoff(
@@ -339,12 +426,11 @@ def test_invalid_start_saturated_falls_through_to_vias():
         timeout_s=5.0,
     )
     assert traj.ok, f"Expected OK after via fallthrough, got: {traj.message}"
-    assert planner.pose_calls >= 1, "Should have tried at least one via standoff"
     assert "via1_" in traj.message or "via_standoff" in traj.message
-    # Home-escape must have been attempted several times before saturation.
-    assert planner.joint_calls >= 4, (
-        f"Expected ≥4 direct (escape) calls, got {planner.joint_calls}"
-    )
+    # At least one INVALID_START direct + retry after prep-seed / home escape.
+    assert planner.joint_calls >= 2
+    # Prep uses plan_to_pose(max_attempts=1); vias use max_attempts>1.
+    assert planner.pose_calls >= 1
 
 
 def test_viz_uses_recovery_planner():

@@ -112,11 +112,12 @@ Unit tests: `tests/test_recovery_audit.py`.
 | Fail-closed gate | Implemented | Yellow marker; no motion |
 | Independent-episode home reset | Optional (YAML default **on** for 1.0 gate) | Not the sequential multi-target path |
 | Approach standoff then contact (via) | **Implemented** | Timed recovery; nearest → farthest |
-| Multi-seed IK bank (joint space) | **Implemented** | `ik_seed_bank.py`; used in via2 IK fallback |
-| Plan to preparatory `q_seed` then retry | Spec’d | Prefer over random far tip jitter |
+| Multi-seed IK bank (joint space) | **Implemented** | `ik_seed_bank.py`; via2 IK fallback |
+| Plan / open-loop to preparatory `q_seed` | **Implemented** | `try_move_to_preparatory_seed` on `INVALID_START` |
+| Home-blend | Last resort | After seed bank exhausted |
 | MoveIt 2 / cuMotion pipelines | Documented | Optional later |
 
-**Do not rely on random Cartesian points farther from the target** as the primary IK recovery. Prefer joint-space seed banks (current / home / prior goals), MoveIt-style multi-attempt reseeding, and IKSel-style “far from failed seeds,” then collision-aware motion to a preparatory configuration. See [spec.md](../spec.md) § IK failure → preparatory repositioning.
+**Do not rely on random Cartesian points farther from the target** as the primary IK recovery. Prefer joint-space seed banks (current / home / prior goals), MoveIt-style multi-attempt reseeding, and IKSel-style “far from failed seeds,” then collision-aware (or open-loop, if start is colliding) motion to a preparatory configuration. See [spec.md](../spec.md) § IK failure → preparatory repositioning.
 
 **Residual learning is not the right tool for this.** Phase 3–4 residuals are bounded `Δq` on top of classical IK. Use planners + classical multi-seed IK for path / seed existence.
 

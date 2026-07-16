@@ -40,7 +40,7 @@ Last updated: **2026-07-16**
 
 **Fix (part 5 — skip overlapping targets):** Even from home, some random IK targets place the 12 mm marker sphere inside the robot's proximal collision capsules (e.g. xyz≈(0, −0.12, 0.10)). These always fail with `INVALID_START_STATE_WORLD_COLLISION`. When `reset_home` is on, `run_ik_viz.py` now prefilters such targets (`SKIP_OVERLAPPING_TARGET`) — they are not counted for or against the rate gate.
 
-**IK reseeding (2026-07-16):** Added joint-space `ik_seed_bank` (MoveIt / IKSel practice): order seeds by continuity, then farthest-from-failed; wired into via2 IK fallback. Spec documents sequential multi-target + preparatory repositioning strategy. `.cursorrules`: rebase onto `main` before landing (no merge-of-main path).
+**IK reseeding (2026-07-16):** Joint-space `ik_seed_bank` + **`try_move_to_preparatory_seed`** as the primary `INVALID_START` escape (planned move when possible; open-loop to `q_seed` when MotionGen cannot start). Home-blend is last resort after the bank is exhausted, then via standoffs. Spec + phase2 docs updated. Phase 2 fixes land on `wip_phase3`.
 
 **Verification (2026-07-15):** Spark `run_verification.sh spark` with 200 GUI episodes → **rate=1.000** (180 ok / 0 fail; 20 keepout skips). MARKER_NO_CONTACT=0 after outer_tol + CONTACT_NUDGE.
 

@@ -486,7 +486,12 @@ Acceptance for sequential mode:
 5. **Keep classical approach–retreat vias** for path existence (standoff clearances × lateral yaw, nearest→farthest). That is motion planning recovery, complementary to IK reseeding.
 6. **Do not** use bounded residual `Δq` to invent large preparatory motions — residuals stay within clamp limits after a classical `q_ik`.
 
-**Implementation contract (Phase 2):** `residual_adaptive_ik.kinematics.ik_seed_bank` provides seed ordering + multi-seed `solve`; recovery may call it when a single mid-via IK seed fails. Home blend remains a last-resort escape for `INVALID_START_*`, not the primary multi-target strategy.
+**Implementation contract (Phase 2 / maintained on `wip_phase3`):**
+`residual_adaptive_ik.kinematics.ik_seed_bank` provides seed ordering + multi-seed
+`solve`. `planning.recovery.try_move_to_preparatory_seed` moves to a bank
+`q_seed` (collision-aware plan when possible; **open-loop** when
+`INVALID_START_*` blocks MotionGen). Home-blend is last-resort only after the
+seed bank is exhausted; then via standoffs.
 
 References: MoveIt kinematics configuration (solver attempts / cached IK); [IKSel](https://arxiv.org/abs/2503.22234) (seed ranking + farthest-failed re-attempt); approach/retreat in MoveIt pick pipelines; cuRobo MotionGen retries. See [REFERENCES.md](REFERENCES.md) Phase 2 library table.
 

@@ -16,15 +16,19 @@ Behaviour (Phase 2 viz / smoke)
   the current tip (progressive distance). Candidates closer than
   ``plan_recovery_min_standoff_travel_m`` are skipped so the EE does not “retry”
   an almost-identical pose; each subsequent candidate is farther out.
-* ``INVALID_START_STATE_WORLD_COLLISION`` escapes toward home a few times, then
-  **falls through to via standoffs** once the escape weight saturates. This
-  avoids burning the full timeout on an unresolvable start-in-obstacle loop.
+* ``INVALID_START_STATE_*`` escapes via a **joint-space seed bank**: move to a
+  preparatory ``q_seed`` (home / mid-home / prior goals), then retry. When the
+  start is in collision, MotionGen cannot start — use an open-loop joint move
+  to ``q_seed``. When the start is valid, prefer a collision-aware plan to the
+  FK tip of ``q_seed``. After the bank is exhausted, fall through to via
+  standoffs (home-blend is last resort only).
 * When ``execute_waypoints`` is provided and via1 succeeds but via2 fails,
   **execute via1** (move the EE), then continue planning from the new pose.
 * The IK target marker must not jump to yellow until this budget is exhausted.
 
 This is classical motion planning — not residual learning. See
 ``docs/phase2_geometry.md`` and ``configs/planning/collision.yaml``.
+``spec.md`` § IK failure → preparatory repositioning.
 
 Units: meters, radians, seconds.
 """
@@ -39,6 +43,11 @@ import numpy as np
 
 from residual_adaptive_ik.geometry.collision import SphereObstacle
 from residual_adaptive_ik.kinematics.fk import forward_kinematics
+from residual_adaptive_ik.kinematics.ik_seed_bank import (
+    build_seed_bank,
+    joint_distance_rad,
+    order_seeds,
+)
 from residual_adaptive_ik.kinematics.numerical_ik import load_joint_limits_rad
 from residual_adaptive_ik.kinematics.urdf_model import UrdfKinematicModel, get_default_model
 from residual_adaptive_ik.planning.curobo_planner import (
@@ -228,13 +237,102 @@ def _clamp_joints(q_rad: np.ndarray) -> np.ndarray:
 
 
 def _blend_toward_home(q_rad: np.ndarray, *, weight: float = 0.35) -> np.ndarray:
-    """Pull joints toward home and clamp (helps INVALID_START_* escapes)."""
+    """Pull joints toward home and clamp (last-resort INVALID_START escape)."""
     from residual_adaptive_ik.kinematics.robot_home import load_home_joint_positions_rad
 
     q = np.asarray(q_rad, dtype=float).reshape(6)
     home = load_home_joint_positions_rad().reshape(6)
     w = float(np.clip(weight, 0.0, 1.0))
     return _clamp_joints((1.0 - w) * q + w * home)
+
+
+def try_move_to_preparatory_seed(
+    q_cur: np.ndarray,
+    *,
+    planner: CuRoboMotionPlanner,
+    model: UrdfKinematicModel,
+    obstacles: list[SphereObstacle] | None = None,
+    failed_seeds: list[np.ndarray] | None = None,
+    previous_goals: Sequence[np.ndarray] | None = None,
+    execute_waypoints: ExecuteWaypointsFn | None = None,
+    allow_planned: bool = True,
+    max_seeds: int = 4,
+    dt_s: float = 0.02,
+) -> tuple[np.ndarray | None, str, list[np.ndarray]]:
+    """Move toward a seed-bank preparatory configuration (radians).
+
+    Spec (``spec.md`` § IK failure → preparatory repositioning)
+    -----------------------------------------------------------
+    Prefer joint-space seeds (home / mid-home / prior goals), not random tip
+    jitter. When ``allow_planned`` is True, try collision-aware ``plan_to_pose``
+    to the FK tip of ``q_seed``. If that fails (typical for
+    ``INVALID_START_*`` — MotionGen cannot leave a colliding start), fall back
+    to an open-loop joint move to ``q_seed``.
+
+    Returns
+    -------
+    ``(new_q, log_tag, updated_failed_seeds)``. ``new_q`` is None when the
+    bank is exhausted.
+    """
+    failed = [np.asarray(f, dtype=float).reshape(6) for f in (failed_seeds or [])]
+    # Treat current as already-tried so we do not "escape" to the same pose.
+    failed_with_cur = failed + [_clamp_joints(q_cur)]
+    bank = build_seed_bank(
+        q_cur,
+        previous_goals=previous_goals,
+        include_mid_home=True,
+    )
+    ordered = order_seeds(
+        bank, q_current=q_cur, failed_seeds=failed_with_cur
+    )
+    if max_seeds > 0:
+        ordered = ordered[: int(max_seeds)]
+
+    obs = list(obstacles or [])
+    for q_seed in ordered:
+        q_seed = _clamp_joints(q_seed)
+        if joint_distance_rad(q_seed, q_cur) < 1e-3:
+            failed.append(q_seed.copy())
+            continue
+
+        tag = f"prep_seed_d{joint_distance_rad(q_seed, q_cur):.3f}"
+        planned_ok = False
+        waypoints: np.ndarray | None = None
+        plan_dt = float(dt_s)
+
+        if allow_planned:
+            pose_seed = forward_kinematics(q_seed, model=model)
+            planned = planner.plan_to_pose(
+                q_cur,
+                pose_seed.position_m,
+                pose_seed.quaternion_wxyz,
+                max_attempts=1,
+                obstacles=obs,
+            )
+            plan_dt = float(planned.dt_s)
+            if planned.ok and planned.waypoints_rad.size > 0:
+                waypoints = np.asarray(planned.waypoints_rad, dtype=float)
+                planned_ok = True
+                tag = f"{tag}_planned|{planned.message}"
+            else:
+                tag = f"{tag}_plan_fail:{planned.message}"
+
+        if not planned_ok:
+            # Open-loop escape: required when start is in world collision
+            # (MotionGen returns INVALID_START and cannot leave).
+            waypoints = np.vstack(
+                [np.asarray(q_cur, dtype=float).reshape(1, 6), q_seed.reshape(1, 6)]
+            )
+            tag = f"{tag}_open_loop"
+
+        assert waypoints is not None
+        if execute_waypoints is not None:
+            execute_waypoints(waypoints, max(plan_dt, 0.02))
+        q_new = _clamp_joints(waypoints[-1])
+        failed.append(q_seed.copy())
+        return q_new, tag, failed
+
+    return None, "prep_seed_bank_exhausted", failed
 
 
 def _is_invalid_start(message: str) -> bool:
@@ -358,6 +456,9 @@ def plan_via_standoff(
     )
     last_dt = float(getattr(planner, "_interpolation_dt_s", 0.02))
     escape_weight = 0.4
+    failed_prep_seeds: list[np.ndarray] = []
+    prep_seed_max = int(cfg.get("plan_recovery_prep_seed_max", 4))
+    prep_seed_enabled = bool(cfg.get("plan_recovery_prep_seed_enabled", True))
 
     if marker is None:
         direct = contact.plan_to_joint_goal(
@@ -423,17 +524,35 @@ def plan_via_standoff(
                 backend=direct.backend,
             )
 
-        # Invalid start (joint limits / world collision): blend toward home
-        # up to a few times to escape trivial self-collisions. Once the weight
-        # saturates the escape is a no-op (home itself may be in world
-        # collision with the marker), so fall through to standoff vias instead
-        # of burning the entire timeout on identical direct rejects.
+        # Invalid start: MotionGen cannot leave a colliding configuration.
+        # Primary escape = preparatory q_seed from the joint-space seed bank
+        # (open-loop when planned move fails). Home-blend is last resort only.
         if _is_invalid_start(direct.message):
+            if prep_seed_enabled:
+                q_new, tag, failed_prep_seeds = try_move_to_preparatory_seed(
+                    q_cur,
+                    planner=planner,
+                    model=mdl,
+                    obstacles=obs,
+                    failed_seeds=failed_prep_seeds,
+                    execute_waypoints=execute_waypoints,
+                    # INVALID_START ⇒ plan from current usually fails; still try
+                    # planned once, then open-loop inside the helper.
+                    allow_planned=True,
+                    max_seeds=prep_seed_max,
+                    dt_s=last_dt,
+                )
+                attempts_log.append(f"invalid_start_{tag}")
+                if q_new is not None:
+                    q_cur = q_new
+                    tip_start = forward_kinematics(q_cur, model=mdl).position_m
+                    time.sleep(0.02)
+                    continue
             if escape_weight < 0.99:
                 q_esc = _blend_toward_home(q_cur, weight=escape_weight)
                 escape_weight = min(0.99, escape_weight + 0.15)
                 attempts_log.append(
-                    f"invalid_start_escape_toward_home_w{escape_weight:.2f}"
+                    f"invalid_start_home_blend_fallback_w{escape_weight:.2f}"
                 )
                 if execute_waypoints is not None:
                     execute_waypoints(
@@ -444,8 +563,7 @@ def plan_via_standoff(
                 tip_start = forward_kinematics(q_cur, model=mdl).position_m
                 time.sleep(0.02)
                 continue
-            # Saturated: home escape exhausted — fall through to via standoffs
-            # with a fresh escape budget for the via loop.
+            # Seed bank + home-blend exhausted — fall through to via standoffs.
             escape_weight = 0.40
             attempts_log.append("invalid_start_escape_saturated_trying_vias")
 
@@ -556,12 +674,9 @@ def plan_via_standoff(
                 if leg2 is not None and leg2.ok:
                     break
                 # Classical multi-seed IK → joint-space MotionGen to surface.
-                # Prefer a seed bank (current / home / mid-home) over a single
-                # mid-via seed; see spec.md § IK failure repositioning.
                 try:
                     from residual_adaptive_ik.kinematics.fk import Pose
                     from residual_adaptive_ik.kinematics.ik_seed_bank import (
-                        build_seed_bank,
                         solve_with_seed_bank,
                     )
                     from residual_adaptive_ik.kinematics.numerical_ik import (
@@ -642,23 +757,40 @@ def plan_via_standoff(
         if _timed_out() and not allow_overtime:
             break
         if not progressed:
-            # If via attempts all hit INVALID_START, the start pose is in
-            # collision. Blend toward home (same logic as the direct-plan
-            # escape) so the next iteration retries from a safer pose.
+            # Via attempts hit INVALID_START or stalled: try another preparatory
+            # seed before home-blend last resort.
             recent = "|".join(attempts_log[-20:]).upper()
-            if "INVALID_START" in recent and escape_weight < 0.99:
-                q_esc = _blend_toward_home(q_cur, weight=escape_weight)
-                escape_weight = min(0.99, escape_weight + 0.15)
-                attempts_log.append(
-                    f"via_invalid_start_escape_w{escape_weight:.2f}"
+            if "INVALID_START" in recent:
+                q_new, tag, failed_prep_seeds = try_move_to_preparatory_seed(
+                    q_cur,
+                    planner=planner,
+                    model=mdl,
+                    obstacles=obs,
+                    failed_seeds=failed_prep_seeds,
+                    execute_waypoints=execute_waypoints,
+                    allow_planned=True,
+                    max_seeds=prep_seed_max,
+                    dt_s=last_dt,
                 )
-                if execute_waypoints is not None:
-                    execute_waypoints(
-                        np.vstack([q_cur.reshape(1, 6), q_esc.reshape(1, 6)]),
-                        max(last_dt, 0.02),
+                attempts_log.append(f"via_{tag}")
+                if q_new is not None:
+                    q_cur = q_new
+                    tip_start = forward_kinematics(q_cur, model=mdl).position_m
+                elif escape_weight < 0.99:
+                    q_esc = _blend_toward_home(q_cur, weight=escape_weight)
+                    escape_weight = min(0.99, escape_weight + 0.15)
+                    attempts_log.append(
+                        f"via_home_blend_fallback_w{escape_weight:.2f}"
                     )
-                q_cur = q_esc
-                tip_start = forward_kinematics(q_cur, model=mdl).position_m
+                    if execute_waypoints is not None:
+                        execute_waypoints(
+                            np.vstack(
+                                [q_cur.reshape(1, 6), q_esc.reshape(1, 6)]
+                            ),
+                            max(last_dt, 0.02),
+                        )
+                    q_cur = q_esc
+                    tip_start = forward_kinematics(q_cur, model=mdl).position_m
             time.sleep(0.05)
 
     elapsed = time.monotonic() - t0

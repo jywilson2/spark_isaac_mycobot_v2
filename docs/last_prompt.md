@@ -1,5 +1,27 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-16 08:13 -07:00
+I will eventually want to move to real hardware. Do you have any suggestions on how I can test the features developed in simulation when using a real MyCobot 280?
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 08:12 -07:00
+Implement the "q_seed from a seed bank" as described in the spec. Perform all tests for verfication, including those used Phase 2.
+
+We are now on Phase 3, so make sure that all work from this point forward occurs only on wip_phase3. Fixes for Phase 2 content will  occur in wip_phase3.
+
+If all tests pass then commit, and push to wip_phase3. Then release wip_phase3 to the github main branch with a rebase.
+## END
+
+## BEGIN: 2026-07-16 08:04 -07:00
+What does this mean?
+
+"home-blend is still the INVALID_START escape; full “plan to preparatory q_seed then retry” is specified but not a full replacement yet."
+## END
+
+# Old prompts:
+
 ## BEGIN: 2026-07-16 00:41 -07:00
 Veriify that wip_phase2 and wip_phase3 have been pushed to remote. Add to .cursorrules that all pushes to main from a branch should be preceded by a rebase, not a merge.
 

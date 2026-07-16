@@ -1,5 +1,19 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Preparatory q_seed escape for INVALID_START (2026-07-16)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `planning/recovery.py` | **Updated** | `try_move_to_preparatory_seed` — primary INVALID_START escape |
+| `configs/planning/collision.yaml` | **Updated** | `plan_recovery_prep_seed_enabled` / `_max` |
+| `tests/test_plan_recovery.py` | **Updated** | Open-loop + planned prep-seed contracts; via fallthrough |
+| `spec.md` / `docs/phase2_geometry.md` | **Updated** | Implementation contract matches code |
+| `planning/__init__.py` | **Updated** | Re-export `try_move_to_preparatory_seed` |
+
+**Worth review:** Open-loop joint moves to `q_seed` bypass MotionGen when the start is colliding (required); they are not collision-checked mid-lerp.
+
+---
+
 ## Phase 3 completion — FK loss + acceptance gate (2026-07-16)
 
 | Path | Action | Notes |

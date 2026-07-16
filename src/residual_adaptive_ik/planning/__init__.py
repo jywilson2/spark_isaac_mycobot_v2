@@ -21,6 +21,7 @@ from residual_adaptive_ik.planning.recovery import (
     plan_via_standoff,
     recovery_audit_plan_fail,
     tip_standoff_on_approach,
+    try_move_to_preparatory_seed,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "plan_via_standoff",
     "recovery_audit_plan_fail",
     "tip_standoff_on_approach",
+    "try_move_to_preparatory_seed",
 ]
