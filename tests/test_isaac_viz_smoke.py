@@ -108,10 +108,10 @@ def test_isaac_viz_gui_smoke():
     env.setdefault("ISAAC_VIZ_SMOKE_N_POSES", "240")
     env.setdefault("ISAAC_VIZ_SMOKE_VISUALIZE", "48")
     env.setdefault("ISAAC_VIZ_SMOKE_HOLD_S", "0.2")
-    # Path-dependent recovery: no per-trial home reset (home once at viz start).
-    env["ISAAC_VIZ_SMOKE_RESET_TO_HOME"] = "0"
+    # YAML default: reset_to_home_before_each_trial=true for reproducible 1.0
+    # rate gate. Use --no-reset-to-home separately for recovery stress testing.
 
-    cmd = _smoke_cmd("--gui", "--no-reset-to-home")
+    cmd = _smoke_cmd("--gui")
     proc = subprocess.run(cmd, cwd=str(REPO), env=env, check=False)
     assert proc.returncode == 0, f"Isaac viz GUI smoke failed: {cmd}"
 
@@ -132,13 +132,11 @@ def test_smoke_isaac_viz_script_exists_and_documents_policy():
     assert "--no-reset-to-home" in text
     assert "ISAAC_VIZ_MIN_PLAN_OK_RATE" in text
     assert "--min-plan-ok-rate" in text
-    # Default GUI automated smoke must not force per-trial home reset.
+    # Default GUI smoke uses YAML reset_to_home (true) for reproducible 1.0 gate.
     gui_src = Path(__file__).read_text(encoding="utf-8")
-    assert '--gui", "--no-reset-to-home"' in gui_src
-    assert 'ISAAC_VIZ_SMOKE_RESET_TO_HOME"] = "0"' in gui_src
+    assert '_smoke_cmd("--gui")' in gui_src
     ver = (REPO / "scripts" / "run_verification.sh").read_text(encoding="utf-8")
-    assert "--no-reset-to-home" in ver
-    assert "smoke_isaac_viz.sh --gui --reset-to-home" not in ver
+    assert "smoke_isaac_viz.sh --gui" in ver
 
 
 def test_viz_moves_home_once_and_turns_marker_green_on_contact():
@@ -148,6 +146,14 @@ def test_viz_moves_home_once_and_turns_marker_green_on_contact():
     assert "approach_from_m" in src
     assert "MarkerVisualState.CONTACT" in src
     assert "ee_contacts_target" in src
+    # MARKER_NO_CONTACT must reclassify the trial as a failure.
+    assert "reclassified as PLAN_FAIL" in src
+    assert "n_plan_ok -= 1" in src
+    # Overlapping / base-keepout targets must be skipped (not counted as fail).
+    assert "SKIP_OVERLAPPING_TARGET" in src
+    assert "TARGET_MARKER_BASE_KEEPOUT_XY_M" in src
+    # Servo shortfall: nudge toward IK tip before declaring no-contact.
+    assert "CONTACT_NUDGE" in src
 
 
 def test_run_isaac_viz_rechecks_plan_ok_rate_after_kit():

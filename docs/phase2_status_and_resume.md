@@ -38,17 +38,19 @@ This is the operational briefing for Phase 2 (geometry + collision-aware plannin
 | Color | Meaning |
 |-------|---------|
 | Red | Pending approach (plan OK path, tip not in contact) |
-| Green | EE tip contact with marker volume |
-| Yellow | Plan failed after recovery attempts; **arm does not move** |
+| Green | EE tip-face contact with marker surface |
+| Yellow | Plan failed **or** PLAN_OK without surface contact; **arm does not move** |
 
 The marker **does not teleport** at the start of a trial. It relocates only when planning finishes: red + EE motion on `PLAN_OK`, or yellow after recovery timeout/exhaustion on `PLAN_FAIL`.
+
+**Contact is required for success:** A trial that gets PLAN_OK but where the tip never reaches the sphere surface (`MARKER_NO_CONTACT`) is reclassified as PLAN_FAIL (yellow). The rate gate enforces both planning and surface contact.
 
 ### Honest limits (known)
 
 - Yellow + motionless is **expected** when every plan (direct + vias) fails. Recovery retries are **planning-only** until a full path succeeds — the arm does not animate failed via legs.
 - With contact-leg tip omit, GUI smoke without per-trial home reset recently measured PLAN_OK well above the 0.25 gate (path-dependent starts still produce some `INVALID_START_*` / recovery fails — intentional for recovery testing).
-- Marker turns **green** when the tip reaches the sphere surface (contact legs plan tip onto the surface with tip spheres omitted).
-- Viz / smoke **fails** (exit ≠ 0) when `PLAN_OK/(OK+FAIL) < min_plan_ok_rate` (default 0.25). Use `ISAAC_VIZ_MIN_PLAN_OK_RATE=0` only when debugging metrics without gating.
+- Marker turns **green** when the tip-face center reaches the sphere surface (contact legs plan tip onto the surface with tip spheres omitted).
+- Viz / smoke **fails** (exit ≠ 0) when `PLAN_OK/(OK+FAIL) < min_plan_ok_rate` (default 0.25). Trials with no surface contact are counted as failures. Use `ISAAC_VIZ_MIN_PLAN_OK_RATE=0` only when debugging metrics without gating.
 - Fitted spheres approximate meshes; not exact mesh–mesh contact.
 - Simulation thresholds (e.g. 1 mm) are sim metrics — do not claim sub-mm hardware accuracy without gated hardware tests.
 

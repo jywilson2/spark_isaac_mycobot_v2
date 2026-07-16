@@ -34,5 +34,5 @@ def test_collision_yaml_enables_home_reset():
     from residual_adaptive_ik.planning.curobo_planner import load_planning_config
 
     cfg = load_planning_config()
-    # Default off so path-dependent recovery can be tested; opt-in via YAML.
-    assert cfg.get("reset_to_home_before_each_trial", True) is False
+    # Default on so 1.0 rate gate is reproducible; opt-out with --no-reset-to-home.
+    assert cfg.get("reset_to_home_before_each_trial", False) is True

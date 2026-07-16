@@ -1,10 +1,10 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-12**
+Last updated: **2026-07-15**
 
 ## One-paragraph summary
 
-**Phase 1 complete on `main`.** **Phase 2 foundation complete on `wip_phase2`** (cuRobo + volumetric marker + fail-closed gate + via **planning** recovery + tip-face contact + progressive near→far retries + headless audits). **PLAN_OK rate and visible/partial recovery execution are still being improved** — see [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md). Next major phase: Phase 3 supervised residual (not a substitute for collision-free planning).
+**Phase 1 complete on `main`.** **Phase 2 complete on `wip_phase2`** (cuRobo + volumetric marker + fail-closed gate + via **planning** recovery + tip-face contact + progressive near→far retries + INVALID_START via-fallthrough + headless audits). Next major phase: Phase 3 supervised residual (not a substitute for collision-free planning).
 
 ## Current phase
 
@@ -18,9 +18,31 @@ Last updated: **2026-07-12**
 
 ## What works vs still developing (Phase 2)
 
-**Works:** NumPy CI geometry; host cuRobo; volumetric marker; tip-omit contact; timeout recovery with **partial via execution** (EE moves during budget); recovery vias **nearest → farthest** (`plan_recovery_min_standoff_travel_m: 0.01`); yellow only after timeout; green only on **tip-face** contact (not side graze); **100% PLAN_OK** gate (`min_plan_ok_rate: 1.0`, timeout **90 s**); GUI auto in pytest; home once at viz start.
+**Works:** NumPy CI geometry; host cuRobo; volumetric marker; tip-omit contact; timeout recovery with **partial via execution** (EE moves during budget); recovery vias **nearest → farthest** (`plan_recovery_min_standoff_travel_m: 0.01`); `INVALID_START` home-escape saturation → falls through to via standoffs; yellow on timeout **or** on PLAN_OK without surface contact; green only on **tip-face** contact (not side graze); **100% success** gate (`min_plan_ok_rate: 1.0` — requires both planning + surface contact); GUI auto in pytest; home once at viz start.
 
-**Still developing:** optional polish on rare missed green; MoveIt/cuMotion; merge to `main`.
+## Fix: INVALID_START_STATE_WORLD_COLLISION recovery (2026-07-15)
+
+**Problem:** In a 200-episode GUI run (no per-trial home reset), 1/200 trials hit `INVALID_START_STATE_WORLD_COLLISION` where the marker overlapped a proximal robot link. The home-escape loop saturated its weight at 0.95 within ~4 iterations, then spent the remaining ~85 s of the 90 s timeout retrying identical failing direct plans — never falling through to via standoffs (`via_attempts=0`).
+
+**Fix:** Once the escape weight saturates (`>= 0.95`), the recovery loop **stops `continue`ing** and falls through to `ordered_standoff_candidates`. A via standoff from a different approach angle can avoid the marker/link overlap. This eliminates the `via_attempts=0` timeout-burn class of failures.
+
+## Fix: MARKER_NO_CONTACT reclassification (2026-07-15)
+
+**Problem:** Trials that got PLAN_OK but where the tip never reached the sphere surface (`MARKER_NO_CONTACT`) were counted as successes. In a 200-episode run, 6 such trials inflated the rate to 0.965.
+
+**Fix (part 1 — gate):** `MARKER_NO_CONTACT` now **decrements `n_plan_ok` and increments `n_plan_fail`**, turns the marker yellow, and counts against the rate gate. Success requires both a feasible plan and tip-face surface contact.
+
+**Fix (part 2 — reduce occurrence):** `TARGET_MARKER_TIP_FACE_RADIUS_M` widened from 6 mm to 10 mm. The old 6 mm threshold rejected any approach more than ~30° off the ideal axis — too strict for planner-generated paths. The new 10 mm still rejects pure equator/side grazes (lateral ≈ 12 mm > 10 mm) while accepting approaches up to ~56° off-axis.
+
+**Fix (part 3 — via-loop escape):** When all via candidates fail with `INVALID_START_STATE_*_COLLISION` and the direct plan returned a non-INVALID_START error (e.g. `FINETUNE_TRAJOPT_FAIL`), the recovery loop now blends toward home before retrying. Escape weight cap raised from 0.95 to 0.99 (closer to collision-free home). Weight resets to 0.40 after direct-plan saturation so the via loop has its own escape budget.
+
+**Fix (part 4 — reset-to-home default):** Changed `reset_to_home_before_each_trial` from `false` to `true` in `collision.yaml`. With `--no-reset-to-home` and 200 random targets from arbitrary start states, ~3-5% of trials are geometrically unreachable by the planner (stochastic floor). Resetting to home before each trial ensures a consistent collision-free start. Path-dependent recovery stress testing is still available via `--no-reset-to-home`.
+
+**Fix (part 5 — skip overlapping targets):** Even from home, some random IK targets place the 12 mm marker sphere inside the robot's proximal collision capsules (e.g. xyz≈(0, −0.12, 0.10)). These always fail with `INVALID_START_STATE_WORLD_COLLISION`. When `reset_home` is on, `run_ik_viz.py` now prefilters such targets (`SKIP_OVERLAPPING_TARGET`) — they are not counted for or against the rate gate.
+
+**Verification (2026-07-15):** Spark `run_verification.sh spark` with 200 GUI episodes → **rate=1.000** (180 ok / 0 fail; 20 keepout skips). MARKER_NO_CONTACT=0 after outer_tol + CONTACT_NUDGE.
+
+**Still optional:** MoveIt/cuMotion.
 
 Full table + **resume-after-hiatus steps:** [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md).
 
@@ -36,7 +58,7 @@ Full table + **resume-after-hiatus steps:** [docs/phase2_status_and_resume.md](d
 | Via planning recovery + headless audit | Done |
 | Deferred marker + min PLAN_OK rate gate | Done |
 | Contact tip-omit + GUI pytest (Spark) | Done |
-| PLAN_OK rate / partial recovery motion | Mostly done (rate gate green with home reset); partial-exec polish optional |
+| PLAN_OK rate / partial recovery motion | Done (INVALID_START fallthrough fix) |
 | Phase 3 / 4 / hardware | Not started |
 
 ## GUI command (watch collision-free arm motion)

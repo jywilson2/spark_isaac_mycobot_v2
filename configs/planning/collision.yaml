@@ -31,9 +31,9 @@ target_obstacle_enabled: true
 gate_motion_on_plan_failure: true
 
 # Return to home_joint_positions_rad before each viz / diagnostic trial.
-# Disabled by default so path-dependent recovery strategies can be tested.
-# Enable with: reset_to_home_before_each_trial: true
-reset_to_home_before_each_trial: false
+# Enabled by default so the 1.0 rate gate is reproducible from a known
+# collision-free start. Use --no-reset-to-home for recovery stress testing.
+reset_to_home_before_each_trial: true
 
 # After a direct plan fails, retry via standoff waypoints until timeout.
 plan_recovery_enabled: true

@@ -1,5 +1,33 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## MARKER_NO_CONTACT reclassified as failure + INVALID_START via-fallthrough (2026-07-15)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `isaac_sim/run_ik_viz.py` | **Updated** | MARKER_NO_CONTACT decrements n_plan_ok, increments n_plan_fail, turns yellow |
+| `isaac_sim/target_marker.py` | **Updated** | TIP_FACE_RADIUS_M widened 6 → 10 mm (accepts ~56° off-axis, rejects equator) |
+| `src/.../planning/recovery.py` | **Updated** | Via-loop INVALID_START escape; escape cap raised 0.95 → 0.99; weight reset after saturation |
+| `configs/planning/collision.yaml` | **Updated** | `reset_to_home_before_each_trial: true` (was false); reproducible 1.0 rate gate |
+| `scripts/run_verification.sh` | **Updated** | Removed `--no-reset-to-home` override (uses YAML default) |
+| `tests/test_plan_recovery.py` | **Updated** | Assert YAML default is reset-to-home=true |
+| `tests/test_robot_home.py` | **Updated** | Assert YAML default is reset-to-home=true |
+| `isaac_sim/run_ik_viz.py` | **Updated** | Base keepout + capsule prefilter; CONTACT_NUDGE toward IK tip before NO_CONTACT fail |
+| `isaac_sim/target_marker.py` | **Updated** | OUTER_TOL 3→8 mm; BASE_KEEPOUT_XY/Z for invalid near-base targets |
+| `tests/test_viz_plan_fail_closed.py` | **Updated** | New test: `test_marker_no_contact_reclassified_as_failure` |
+| `tests/test_isaac_viz_smoke.py` | **Updated** | Assert reclassification contract in source |
+| `docs/phase2_geometry.md` | **Updated** | Contact required for success |
+| `docs/phase2_status_and_resume.md` | **Updated** | Contact required; marker color table |
+| `STATUS.md` | **Updated** | Fix documentation |
+
+## INVALID_START via-fallthrough fix (2026-07-15)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `src/.../planning/recovery.py` | **Updated** | Home-escape saturated → fall through to via standoffs instead of looping |
+| `tests/test_plan_recovery.py` | **Updated** | New test: `test_invalid_start_saturated_falls_through_to_vias` |
+| `STATUS.md` | **Updated** | Documented fix; updated checklist |
+| `docs/last_prompt.md` | **Updated** | Prompt log |
+
 ## Push gate: GUI required before remote push (2026-07-12 00:26)
 
 | Path | Action | Notes |

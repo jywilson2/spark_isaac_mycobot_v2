@@ -284,7 +284,7 @@ def test_collision_yaml_recovery_defaults():
     from residual_adaptive_ik.planning.curobo_planner import load_planning_config
 
     cfg = load_planning_config()
-    assert cfg.get("reset_to_home_before_each_trial", True) is False
+    assert cfg.get("reset_to_home_before_each_trial", False) is True
     assert cfg.get("plan_recovery_enabled", False) is True
     assert float(cfg.get("plan_recovery_timeout_s", 0)) >= 90.0
     assert int(cfg.get("plan_recovery_direct_max_attempts", 99)) <= 2
@@ -292,6 +292,59 @@ def test_collision_yaml_recovery_defaults():
     assert float(cfg.get("plan_recovery_min_standoff_travel_m", 0)) >= 0.005
     assert float(cfg.get("plan_recovery_min_standoff_travel_m", 1)) <= 0.05
     assert float(cfg.get("min_plan_ok_rate", 0)) >= 1.0 - 1e-9
+
+
+def test_invalid_start_saturated_falls_through_to_vias():
+    """After home-escape saturates, recovery must try via standoffs (not loop forever)."""
+
+    class _InvalidStartThenViaOk:
+        _interpolation_dt_s = 0.02
+
+        def __init__(self):
+            self.joint_calls = 0
+            self.pose_calls = 0
+
+        def plan_to_joint_goal(self, *args, **kwargs):
+            self.joint_calls += 1
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION",
+            )
+
+        def plan_to_pose(self, q_start, tip, quat, *, max_attempts=4, obstacles=None):
+            self.pose_calls += 1
+            q0 = np.asarray(q_start, dtype=float).reshape(6)
+            end = q0 + 0.05
+            return PlannedTrajectory(
+                waypoints_rad=np.vstack([q0, end]),
+                dt_s=0.02,
+                success=True,
+                backend="curobo",
+                message="ok|via",
+            )
+
+    planner = _InvalidStartThenViaOk()
+    q0 = np.zeros(6)
+    q1 = np.array([0.2, 0.1, -0.1, 0.0, 0.2, 0.0])
+    marker = SphereObstacle(center_m=np.array([0.15, 0.0, 0.15]), radius_m=0.012)
+    traj = plan_via_standoff(
+        q0,
+        q1,
+        planner=planner,  # type: ignore[arg-type]
+        obstacles=[marker],
+        standoff_clearances_m=[0.05, 0.08, 0.12],
+        timeout_s=5.0,
+    )
+    assert traj.ok, f"Expected OK after via fallthrough, got: {traj.message}"
+    assert planner.pose_calls >= 1, "Should have tried at least one via standoff"
+    assert "via1_" in traj.message or "via_standoff" in traj.message
+    # Home-escape must have been attempted several times before saturation.
+    assert planner.joint_calls >= 4, (
+        f"Expected ≥4 direct (escape) calls, got {planner.joint_calls}"
+    )
 
 
 def test_viz_uses_recovery_planner():

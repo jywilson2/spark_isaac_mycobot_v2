@@ -1,5 +1,53 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-15 14:56 -07:00
+IMPORTANT CORRECTION FROM THE USER:
+
+A trial that gets PLAN_OK but MARKER_NO_CONTACT must be counted as a **failure**, not a success. The current implementation only logs a warning for MARKER_NO_CONTACT and still counts it as PLAN_OK for the rate gate. This is wrong.
+
+**Requirement:** Success for each test must include contact with the surface of the sphere from the EE surface. If the tip never reaches the sphere surface (MARKER_NO_CONTACT), that trial must count as a failure for the pass/fail gate.
+
+Specifically:
+1. In `isaac_sim/run_ik_viz.py`, when `MARKER_NO_CONTACT` occurs (PLAN_OK but tip never reached sphere surface), the trial must be reclassified: either decrement `n_plan_ok` and increment `n_plan_fail`, or add a separate contact gate that also must pass (e.g., `n_contact_green` must equal `n_plan_ok`).
+2. Update any tests that assert on the gate logic to reflect this new requirement.
+3. Update docs (STATUS.md, phase2_status_and_resume.md, phase2_geometry.md) to document that surface contact is required for a trial to count as successful.
+
+After implementing this fix, continue with the previous prompt which was:
+- If all tests pass including GUI test, commit and push to wip_phase2
+- Rebase and push to main, create wip_phase3 branch
+- If tests fail, iterate on the fix
+- Document in STATUS.md
+- Once complete, begin Phase 3 work
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-15 14:40 -07:00
+Yes, implement recover-loop fix. Do not implement the third item.
+
+Perform the following steps:
+
+If all tests pass, including the GUI test, then commit and push to wip_phase2. Also, rebase and push to main and create a new branch for phase 3 work, called wip_phase3.
+
+If not iterate on the error, and produce a different fix. Execute the last step once successful.
+
+Document your fix in STATUS.md.
+
+Once the above is complete, begin work on Phase 3. Create new unit and integration tests as needed.
+
+If all tests pass, document, commit and push in a new branch called wip_phase3.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-15 14:25 -07:00
+Any thoughts on why this last test failed?
+## END
+
+## BEGIN: 2026-07-12 00:34 -07:00
+Rerun the GUI test with 200 episodes.
+## END
+
 ## BEGIN: 2026-07-12 00:27 -07:00
 Commit, rebase, and push, please.
 ## END

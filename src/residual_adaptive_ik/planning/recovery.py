@@ -16,6 +16,9 @@ Behaviour (Phase 2 viz / smoke)
   the current tip (progressive distance). Candidates closer than
   ``plan_recovery_min_standoff_travel_m`` are skipped so the EE does not “retry”
   an almost-identical pose; each subsequent candidate is farther out.
+* ``INVALID_START_STATE_WORLD_COLLISION`` escapes toward home a few times, then
+  **falls through to via standoffs** once the escape weight saturates. This
+  avoids burning the full timeout on an unresolvable start-in-obstacle loop.
 * When ``execute_waypoints`` is provided and via1 succeeds but via2 fails,
   **execute via1** (move the EE), then continue planning from the new pose.
 * The IK target marker must not jump to yellow until this budget is exhausted.
@@ -420,23 +423,31 @@ def plan_via_standoff(
                 backend=direct.backend,
             )
 
-        # Invalid start (joint limits / world collision): move toward a safer
-        # pose before burning the timeout on hundreds of identical rejects.
+        # Invalid start (joint limits / world collision): blend toward home
+        # up to a few times to escape trivial self-collisions. Once the weight
+        # saturates the escape is a no-op (home itself may be in world
+        # collision with the marker), so fall through to standoff vias instead
+        # of burning the entire timeout on identical direct rejects.
         if _is_invalid_start(direct.message):
-            q_esc = _blend_toward_home(q_cur, weight=escape_weight)
-            escape_weight = min(0.95, escape_weight + 0.15)
-            attempts_log.append(
-                f"invalid_start_escape_toward_home_w{escape_weight:.2f}"
-            )
-            if execute_waypoints is not None:
-                execute_waypoints(
-                    np.vstack([q_cur.reshape(1, 6), q_esc.reshape(1, 6)]),
-                    max(last_dt, 0.02),
+            if escape_weight < 0.99:
+                q_esc = _blend_toward_home(q_cur, weight=escape_weight)
+                escape_weight = min(0.99, escape_weight + 0.15)
+                attempts_log.append(
+                    f"invalid_start_escape_toward_home_w{escape_weight:.2f}"
                 )
-            q_cur = q_esc
-            tip_start = forward_kinematics(q_cur, model=mdl).position_m
-            time.sleep(0.02)
-            continue
+                if execute_waypoints is not None:
+                    execute_waypoints(
+                        np.vstack([q_cur.reshape(1, 6), q_esc.reshape(1, 6)]),
+                        max(last_dt, 0.02),
+                    )
+                q_cur = q_esc
+                tip_start = forward_kinematics(q_cur, model=mdl).position_m
+                time.sleep(0.02)
+                continue
+            # Saturated: home escape exhausted — fall through to via standoffs
+            # with a fresh escape budget for the via loop.
+            escape_weight = 0.40
+            attempts_log.append("invalid_start_escape_saturated_trying_vias")
 
         progressed = False
         candidates = ordered_standoff_candidates(
@@ -613,6 +624,23 @@ def plan_via_standoff(
         if _timed_out() and not allow_overtime:
             break
         if not progressed:
+            # If via attempts all hit INVALID_START, the start pose is in
+            # collision. Blend toward home (same logic as the direct-plan
+            # escape) so the next iteration retries from a safer pose.
+            recent = "|".join(attempts_log[-20:]).upper()
+            if "INVALID_START" in recent and escape_weight < 0.99:
+                q_esc = _blend_toward_home(q_cur, weight=escape_weight)
+                escape_weight = min(0.99, escape_weight + 0.15)
+                attempts_log.append(
+                    f"via_invalid_start_escape_w{escape_weight:.2f}"
+                )
+                if execute_waypoints is not None:
+                    execute_waypoints(
+                        np.vstack([q_cur.reshape(1, 6), q_esc.reshape(1, 6)]),
+                        max(last_dt, 0.02),
+                    )
+                q_cur = q_esc
+                tip_start = forward_kinematics(q_cur, model=mdl).position_m
             time.sleep(0.05)
 
     elapsed = time.monotonic() - t0

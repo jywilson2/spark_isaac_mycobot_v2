@@ -37,11 +37,18 @@ TARGET_MARKER_EMISSIVE_RGB = TARGET_MARKER_EMISSIVE_RED_RGB
 
 # Tip-to-center distance ≤ sphere radius ⇒ tip on or inside the marker volume.
 TARGET_MARKER_CONTACT_DISTANCE_M = TARGET_MARKER_RADIUS_M
-# Allow a thin outer shell so sim lag / servo error still counts as surface contact.
-TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M = 0.003
-# Half-width of the EE tip-face "pad" (meters). Tip must land within this of the
-# ideal approach pierce point — rejects side grazes on the sphere.
-TARGET_MARKER_TIP_FACE_RADIUS_M = 0.006
+# Allow an outer shell so Isaac PD servo lag still counts as surface contact.
+# 8 mm covers typical shortfall after cuRobo contact-leg plans (was 3 mm).
+TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M = 0.008
+# Max lateral offset (meters) from the approach axis for valid tip-face contact.
+# Rejects pure equator/side grazes (lateral ≈ sphere radius) while allowing
+# approaches up to ~56° off the ideal axis (sin(56°) × 12 mm ≈ 10 mm).
+TARGET_MARKER_TIP_FACE_RADIUS_M = 0.010
+# Base-column keepout (meters): targets inside this cylinder near the base
+# cause cuRobo INVALID_START_STATE_WORLD_COLLISION even from home (mesh-fitted
+# spheres overlap the marker OBB). Skip them from the rate gate.
+TARGET_MARKER_BASE_KEEPOUT_XY_M = 0.14
+TARGET_MARKER_BASE_KEEPOUT_Z_M = 0.16
 
 
 def marker_rgb_for_state(

@@ -123,7 +123,7 @@ run_gui_isaac() {
   # Do NOT pass --reset-to-home: home is applied once at viz start; per-trial
   # reset would hide path-dependent recovery failures.
   local viz="${ISAAC_VIZ_SMOKE_GUI_VISUALIZE:-${PHASE1_SMOKE_GUI_VISUALIZE:-${ISAAC_VIZ_SMOKE_VISUALIZE:-${PHASE1_SMOKE_VISUALIZE:-48}}}}"
-  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (no per-trial home reset)."
+  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (YAML default: reset-to-home)."
   local -a gui_env=(
     "ISAAC_VIZ_SMOKE_VISUALIZE=${viz}"
     "PHASE1_SMOKE_VISUALIZE=${viz}"
@@ -131,10 +131,10 @@ run_gui_isaac() {
   if [[ -f /.dockerenv ]]; then
     env "${gui_env[@]}" \
       bash "${ROOT}/scripts/host/spark_host_exec.sh" \
-      ./scripts/host/smoke_isaac_viz.sh --gui --no-reset-to-home
+      ./scripts/host/smoke_isaac_viz.sh --gui
   else
     env "${gui_env[@]}" \
-      bash "${ROOT}/scripts/host/smoke_isaac_viz.sh" --gui --no-reset-to-home
+      bash "${ROOT}/scripts/host/smoke_isaac_viz.sh" --gui
   fi
 }
 

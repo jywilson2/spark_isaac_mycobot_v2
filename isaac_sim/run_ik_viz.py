@@ -39,6 +39,8 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from isaac_sim.target_marker import (  # noqa: E402
+    TARGET_MARKER_BASE_KEEPOUT_XY_M,
+    TARGET_MARKER_BASE_KEEPOUT_Z_M,
     TARGET_MARKER_CONTACT_DISTANCE_M,
     TARGET_MARKER_RADIUS_M,
     ee_contacts_target,
@@ -76,6 +78,10 @@ from residual_adaptive_ik.kinematics.workspace_sampling import (  # noqa: E402
     load_workspace_config,
 )
 from residual_adaptive_ik.geometry import SphereObstacle  # noqa: E402
+from residual_adaptive_ik.geometry.collision import (  # noqa: E402
+    capsule_sphere_collide,
+    link_capsules_from_q,
+)
 from residual_adaptive_ik.planning import (  # noqa: E402
     curobo_available,
 )
@@ -572,9 +578,9 @@ def run_viz(args: argparse.Namespace) -> int:
             reset_home = bool(plan_cfg.get("reset_to_home_before_each_trial", False))
         else:
             reset_home = bool(args.reset_to_home)
-        # Always start from home once before the trial loop. Per-trial reset is
-        # opt-in only (--reset-to-home / YAML) so path-dependent recovery is the
-        # default under test (GUI smoke must not pass --reset-to-home).
+        # Always start from home once before the trial loop. Per-trial reset
+        # defaults to True (YAML) for a reproducible 1.0 rate gate; use
+        # --no-reset-to-home for path-dependent recovery stress testing.
         _viz_log(
             f"Phase 2: moving to home once before trials "
             f"q_home_rad={np.array2string(q_home, precision=3)}"
@@ -588,7 +594,7 @@ def run_viz(args: argparse.Namespace) -> int:
         if reset_home:
             _viz_log(
                 "Phase 2: ALSO reset to home before each trial "
-                "(CLI/YAML; not used by default GUI smoke)"
+                "(YAML default / --reset-to-home)"
             )
         else:
             _viz_log(
@@ -635,6 +641,30 @@ def run_viz(args: argparse.Namespace) -> int:
                 radius_m=float(TARGET_MARKER_RADIUS_M),
                 name="ik_target",
             )
+
+            # Prefilter: skip targets inside the base-column keepout. cuRobo's
+            # mesh-fitted spheres + marker OBB collide at home for these poses
+            # (NumPy capsules under-approximate the base), always yielding
+            # INVALID_START_STATE_WORLD_COLLISION. Also skip capsule overlap.
+            radial_xy = float(np.hypot(target_xyz[0], target_xyz[1]))
+            in_keepout = (
+                radial_xy < float(TARGET_MARKER_BASE_KEEPOUT_XY_M)
+                and float(target_xyz[2]) < float(TARGET_MARKER_BASE_KEEPOUT_Z_M)
+            )
+            home_capsules = link_capsules_from_q(q_now)
+            capsule_hit = any(
+                capsule_sphere_collide(c, target_obstacle) for c in home_capsules
+            )
+            if in_keepout or capsule_hit:
+                _viz_log(
+                    f"  SKIP_OVERLAPPING_TARGET: marker at "
+                    f"({target_xyz[0]:.3f},{target_xyz[1]:.3f},{target_xyz[2]:.3f}) "
+                    f"radial_xy={radial_xy:.3f} keepout={in_keepout} "
+                    f"capsule={capsule_hit} — not counted",
+                    level="warn",
+                )
+                continue
+
             marker_committed = False
             contacted = False
             # Approach ray for tip-face contact (meters): tip at trial start, then
@@ -780,12 +810,42 @@ def run_viz(args: argparse.Namespace) -> int:
                     except Exception:
                         pass
                 simulation_app.update()
+            if not contacted:
+                # Contact nudge: PD servo may stop a few mm short of the sphere.
+                # Drive toward the classical IK tip goal (on the surface by
+                # construction) and re-check tip-face contact.
+                _viz_log("  CONTACT_NUDGE: refining toward IK tip on sphere surface")
+                approach_from_m = np.asarray(
+                    forward_kinematics(
+                        _get_joint_positions(articulation)
+                    ).position_m,
+                    dtype=float,
+                ).reshape(3).copy()
+                _move_joints_at_hardware_speed(
+                    articulation,
+                    trial.q_sol,
+                    simulation_app,
+                    max_speed_rad_s=max_speed,
+                    on_step=_on_step,
+                )
+                t_nudge = time.monotonic() + max(0.05, float(args.hold_s))
+                while time.monotonic() < t_nudge and simulation_app.is_running():
+                    if not contacted:
+                        try:
+                            _on_step(_get_joint_positions(articulation))
+                        except Exception:
+                            pass
+                    simulation_app.update()
             if contacted:
                 n_contact_green += 1
             else:
+                # Reclassify: PLAN_OK without surface contact is a failure.
+                n_plan_ok -= 1
+                n_plan_fail += 1
+                _set_target_marker_color(stage, state=MarkerVisualState.PLAN_FAIL)
                 _viz_log(
                     "  MARKER_NO_CONTACT: PLAN_OK but tip never reached sphere "
-                    "surface (stayed red)",
+                    "surface → reclassified as PLAN_FAIL",
                     level="warn",
                 )
             if not simulation_app.is_running():

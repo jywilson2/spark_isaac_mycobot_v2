@@ -147,8 +147,21 @@ def test_viz_script_uses_fail_closed_policy_and_yellow_marker():
     assert "_viz_log" in src
     assert "meets_min_plan_ok_rate" in src
     assert "--min-plan-ok-rate" in src
-    # Must not reintroduce ungated IK lerp to trial.q_sol after plan failure.
-    assert "_move_joints_at_hardware_speed(\n                    articulation,\n                    trial.q_sol" not in src
+    # CONTACT_NUDGE may drive toward trial.q_sol only after PLAN_OK.
+    # Must not reintroduce ungated IK lerp in the PLAN_FAIL / GATED_NO_MOTION path.
+    assert "CONTACT_NUDGE" in src
+    fail_idx = src.index("GATED_NO_MOTION")
+    # Within ~800 chars after GATED_NO_MOTION there must be no trial.q_sol drive.
+    window = src[fail_idx : fail_idx + 800]
+    assert "trial.q_sol" not in window
+
+
+def test_marker_no_contact_reclassified_as_failure():
+    """PLAN_OK without tip-face surface contact must count as a failure."""
+    src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
+    assert "reclassified as PLAN_FAIL" in src
+    assert "n_plan_ok -= 1" in src
+    assert "n_plan_fail += 1" in src
 
 
 def test_viz_defers_marker_until_plan_outcome():

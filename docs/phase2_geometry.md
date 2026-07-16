@@ -81,9 +81,13 @@ The **first** recovery pass always runs after a failed direct plan (so a slow di
 
 Yellow + motionless means the wall-clock budget expired with no executable path. Logs must include `via_attempts=N` / `via1_…` / `travel_m=…`.
 
-### Tip-face contact (red → green)
+### Tip-face contact (red → green → success gate)
 
 Green requires the **middle of the EE tip contact pad** on the marker surface along the approach ray (`ee_contacts_target(..., approach_from_m=…)`). Side / equator grazes are not valid contact.
+
+**Contact is required for success:** A trial that gets PLAN_OK but the tip never reaches the sphere surface (`MARKER_NO_CONTACT`) is **reclassified as PLAN_FAIL** — the sphere turns yellow, and the trial counts against the rate gate. This ensures `min_plan_ok_rate: 1.0` means 100% contact, not just 100% planning.
+
+**Overlapping targets skipped:** When `reset_to_home_before_each_trial` is on, targets whose marker sphere overlaps the robot's collision capsules at home are logged as `SKIP_OVERLAPPING_TARGET` and excluded from the rate (they are geometrically invalid — the planner would always reject them with `INVALID_START_STATE_WORLD_COLLISION`).
 
 Headless audit (fails if any PLAN_FAIL has zero via attempts):
 
