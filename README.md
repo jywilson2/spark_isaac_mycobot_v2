@@ -409,7 +409,9 @@ Phase 2 CI entry: geometry / planning unit tests + NumPy path-check smoke.
 ./scripts/run_phase3_supervised.sh
 ```
 
-Entry point for supervised residual training (`train_supervised`). Still a stub until Phase 3 is implemented.  
+Train + evaluate the Phase 3 supervised residual MLP. In the Cursor/Isaac ROS
+container this delegates to the host Isaac python (torch) via
+`scripts/host/train_supervised_residual.sh`. Report: `docs/phase3_supervised.md`.  
 (`scripts/run_phase2_supervised.sh` remains a deprecation wrapper.)
 
 #### `./scripts/run_phase4_sac.sh`

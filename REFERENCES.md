@@ -39,6 +39,17 @@ README “Phase N libraries” section in the same change set (see `spec.md` § 
 Vendor reach / speed reference: [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) (280 mm, 160 °/s) → `configs/robot/workspace.yaml`.  
 v1 even-coverage reference: `spark_isaac_mycobot_demo/isaac_lab/mdp_core.py` (cylindrical annulus + stratified demo bins).
 
+## Phase 3 implementation libraries
+
+| Library | Docs / source | How Phase 3 uses it |
+|---------|---------------|---------------------|
+| [NumPy](https://numpy.org/doc/stable/) | Arrays | Dataset generation, observation packing, oracle eval |
+| [PyTorch](https://pytorch.org/docs/stable/index.html) | `nn.Module`, AdamW | `ResidualIKModel` MLP; host Isaac python train |
+| [PyYAML](https://pyyaml.org/) | Config load | `configs/learning/supervised_residual.yaml` |
+| [pytest](https://docs.pytest.org/en/stable/) | Fixtures, asserts | `tests/test_generate_supervised_data.py`, `test_evaluate_supervised.py`, `test_residual_model.py` |
+
+Classical IK (`DampedLeastSquaresIK`) still supplies `q_ik`; learning only predicts bounded `Δq`.
+
 ---
 
 ## 1. MyCobot 280 hardware (Elephant Robotics)

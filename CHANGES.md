@@ -1,5 +1,23 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Phase 3 supervised residual scaffold + first MLP (2026-07-16)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `src/.../data/generate_supervised_data.py` | **Implemented** | Perturbation dataset + NPZ I/O + obs pack |
+| `src/.../learning/train_supervised.py` | **Implemented** | Obs std, MSE train, checkpoint + CSV |
+| `src/.../learning/evaluate_supervised.py` | **Implemented** | IK / oracle / MLP comparison |
+| `scripts/host/train_supervised_residual.sh` | **Added** | Host Isaac python train entry |
+| `scripts/run_phase3_supervised.sh` | **Updated** | Delegates to host when in container |
+| `configs/learning/supervised_residual.yaml` | **Updated** | Lighter mag penalty, lr 1e-3 |
+| `tests/test_generate_supervised_data.py` | **Added** | Dataset contracts |
+| `tests/test_evaluate_supervised.py` | **Added** | Oracle ≥ IK |
+| `tests/test_residual_model.py` | **Added** | Bound check (torch skip ok) |
+| `docs/phase3_supervised.md` | **Added** | Metrics report |
+| `STATUS.md` / `README.md` / `REFERENCES.md` | **Updated** | Phase 3 status + libraries |
+
+**Worth review:** MLP median gain (~0.39 mm) still trails oracle (~0.97 mm); next add FK pose-error loss.
+
 ## Sequential multi-target + IK seed bank (2026-07-16)
 
 | Path | Action | Notes |
