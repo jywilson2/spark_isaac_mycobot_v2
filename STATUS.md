@@ -4,7 +4,7 @@ Last updated: **2026-07-16**
 
 ## One-paragraph summary
 
-**Phase 1 complete on `main`.** **Phase 2 complete on `wip_phase2`.** **Phase 3 complete on `wip_phase3`**: supervised residual datasets, bounded MLP with FK pose-error training loss, stress/per-mode eval, acceptance gate; test-set median tip error improved ~0.40 mm vs IK-only (stress +0.82 mm). Next: Phase 4 SAC on `wip_phase3` or new branch.
+**Phase 1 complete on `main`.** **Phase 2 complete on `wip_phase2`.** **Phase 3 complete on `wip_phase3`** (rebased onto `wip_phase2` incl. sequential multi-target + seed bank): supervised residual datasets, bounded MLP with FK pose-error training loss, stress/per-mode eval, acceptance gate; test-set median tip error improved ~0.40 mm vs IK-only (stress +0.82 mm). Next: Phase 4 SAC on `wip_phase3` or new branch.
 
 ## Current phase
 
