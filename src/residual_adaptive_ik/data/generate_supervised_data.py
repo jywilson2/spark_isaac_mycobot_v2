@@ -48,6 +48,23 @@ def load_supervised_config(path: Path | str | None = None) -> dict[str, Any]:
         return dict(yaml.safe_load(handle) or {})
 
 
+PERTURBATION_MODE_IDS: dict[str, int] = {
+    "clean": 0,
+    "joint_bias": 1,
+    "tool_frame": 2,
+    "base_frame": 3,
+    "target_noise": 4,
+    "payload_sag": 5,
+}
+PERTURBATION_ID_TO_MODE = {v: k for k, v in PERTURBATION_MODE_IDS.items()}
+
+
+def perturbation_mode_id(meta: dict) -> int:
+    """Encode ``metadata['perturbation']`` for NPZ storage."""
+    mode = str(meta.get("perturbation", "unknown"))
+    return int(PERTURBATION_MODE_IDS.get(mode, 255))
+
+
 def sample_to_arrays(samples: list[ResidualIKSample]) -> dict[str, np.ndarray]:
     """Stack ``ResidualIKSample`` list into NPZ-ready arrays."""
     if not samples:
@@ -64,6 +81,9 @@ def sample_to_arrays(samples: list[ResidualIKSample]) -> dict[str, np.ndarray]:
             [s.observed_orientation_error for s in samples]
         ),
         "delta_q_label": np.stack([s.delta_q_label for s in samples]),
+        "perturbation_mode": np.array(
+            [perturbation_mode_id(s.metadata) for s in samples], dtype=np.uint8
+        ),
     }
 
 

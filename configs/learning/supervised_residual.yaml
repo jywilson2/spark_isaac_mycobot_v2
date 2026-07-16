@@ -9,11 +9,16 @@ training:
   weight_decay: 0.00001
   seed: 42
 loss:
-  # Primary objective is matching Δq labels; keep magnitude penalty light so
-  # the MLP does not collapse to near-zero residuals on mixed clean/noisy data.
+  # Composite loss (spec.md): Δq MSE + FK tip error + magnitude + joint limits.
   lambda_delta_q: 1.0
+  lambda_fk_pose: 0.5
   lambda_residual_magnitude: 0.0001
   lambda_joint_limit: 10.0
+evaluation:
+  # Clean baseline: MLP median tip error may exceed IK by at most this (meters).
+  clean_degrade_tolerance_m: 0.0005
+  # MLP must beat IK-only by at least this median improvement on the test split.
+  min_mlp_median_improvement_m: 0.0001
 dataset:
   train_path: assets/datasets/supervised_train.npz
   val_path: assets/datasets/supervised_val.npz

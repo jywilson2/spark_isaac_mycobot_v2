@@ -4,7 +4,7 @@ Last updated: **2026-07-16**
 
 ## One-paragraph summary
 
-**Phase 1 complete on `main`.** **Phase 2 complete on `wip_phase2`** (cuRobo + volumetric marker + tip-face contact success gate + 1.0 rate with keepout/nudge; Spark verify 200-ep GUI passed). **Phase 3 scaffold + first MLP on `wip_phase3`**: supervised residual datasets, bounded MLP, host train script; test-set median tip error improved ~0.39 mm vs IK-only (oracle ~0.97 mm). Next: harden supervised (FK loss / larger data), then Phase 4 SAC.
+**Phase 1 complete on `main`.** **Phase 2 complete on `wip_phase2`.** **Phase 3 complete on `wip_phase3`**: supervised residual datasets, bounded MLP with FK pose-error training loss, stress/per-mode eval, acceptance gate; test-set median tip error improved ~0.40 mm vs IK-only (stress +0.82 mm). Next: Phase 4 SAC on `wip_phase3` or new branch.
 
 ## Current phase
 
@@ -12,7 +12,7 @@ Last updated: **2026-07-16**
 |-------|------|--------|
 | **1** | Classical IK baseline | **Complete** (`main`) |
 | **2** | Geometry + collision-aware planning (cuRobo) | **Complete** on `wip_phase2` (main FF pending) |
-| **3** | Supervised residual `Δq` | **In progress** on `wip_phase3` — first MLP + report |
+| **3** | Supervised residual `Δq` | **Complete** on `wip_phase3` — FK-loss MLP + acceptance gate |
 | **4** | SAC residual RL (Isaac Lab) | Not started |
 | ROS 2 | Dry-run → gated hardware | Not started |
 
@@ -61,7 +61,7 @@ Full table + **resume-after-hiatus steps:** [docs/phase2_status_and_resume.md](d
 | Deferred marker + min PLAN_OK rate gate | Done |
 | Contact tip-omit + GUI pytest (Spark) | Done |
 | PLAN_OK rate / partial recovery motion | Done (INVALID_START fallthrough fix) |
-| Phase 3 supervised residual MLP + report | In progress (`wip_phase3`; see `docs/phase3_supervised.md`) |
+| Phase 3 supervised residual MLP + report | Done (`wip_phase3`; `docs/phase3_supervised.md`) |
 | Phase 4 / hardware | Not started |
 
 ## GUI command (watch collision-free arm motion)
@@ -101,10 +101,9 @@ Details: [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md) §
 
 ## Suggested next steps
 
-1. Improve PLAN_OK under volumetric marker; consider partial via execution for GUI visibility.
-2. Merge `wip_phase2` → `main` when verification is agreed.
-3. Start Phase 3 supervised residual under simulated mismatch.
-4. Keep hardware dry-run until `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
+1. Merge `wip_phase2` → `main` when verification is agreed.
+2. Begin Phase 4 SAC residual on Isaac Lab (initialize from Phase 3 checkpoint).
+3. Keep hardware dry-run until `ENABLE_MYCOBOT_HARDWARE_TESTS=1`.
 
 ## Related docs
 

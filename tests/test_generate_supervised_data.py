@@ -38,6 +38,7 @@ def test_write_and_load_npz(tmp_path: Path):
     data = load_npz(path)
     assert data["q_ik"].shape == (12, 6)
     assert data["delta_q_label"].shape == (12, 6)
+    assert data["perturbation_mode"].shape == (12,)
     arrays = sample_to_arrays(samples)
     assert arrays["target_position"].shape == (12, 3)
 

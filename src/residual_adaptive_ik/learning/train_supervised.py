@@ -2,7 +2,10 @@
 """Train supervised residual IK model (Phase 3).
 
 Composite loss (``spec.md``):
-  MSE(Δq_pred, Δq_label) + λ_mag·||Δq||² + λ_lim·joint_limit_penalty
+  MSE(Δq_pred, Δq_label)
+  + λ_fk·||FK(q_ik+Δq) − true_tip||²
+  + λ_mag·||Δq||²
+  + λ_lim·joint_limit_penalty(q_ik+Δq)
 
 Requires PyTorch. On the DGX Spark host::
 
@@ -27,6 +30,11 @@ from residual_adaptive_ik.data.generate_supervised_data import (
     pack_observation,
 )
 from residual_adaptive_ik.data.dataset_schema import ResidualIKSample
+from residual_adaptive_ik.kinematics.numerical_ik import load_joint_limits_rad
+from residual_adaptive_ik.learning.fk_torch import (
+    build_fk_module,
+    true_tip_positions_numpy,
+)
 from residual_adaptive_ik.utils.math_utils import DEG2RAD
 
 
@@ -49,11 +57,12 @@ def _require_torch():
 
 def arrays_to_obs_labels(
     data: dict[str, np.ndarray],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Convert NPZ arrays to (obs, delta_q_label) float32 matrices."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Convert NPZ arrays to (obs, delta_q_label, q_ik, true_tip_xyz)."""
     n = int(data["q_ik"].shape[0])
     obs = np.zeros((n, OBS_DIM), dtype=np.float32)
     labels = np.asarray(data["delta_q_label"], dtype=np.float32)
+    q_ik = np.asarray(data["q_ik"], dtype=np.float32)
     for i in range(n):
         sample = ResidualIKSample(
             target_position=data["target_position"][i],
@@ -65,7 +74,17 @@ def arrays_to_obs_labels(
             delta_q_label=data["delta_q_label"][i],
         )
         obs[i] = pack_observation(sample).astype(np.float32)
-    return obs, labels
+    true_tip = true_tip_positions_numpy(q_ik, data["observed_position_error"])
+    return obs, labels, q_ik, true_tip
+
+
+def _joint_limit_penalty(
+    q: "torch.Tensor", lo: "torch.Tensor", hi: "torch.Tensor"
+) -> "torch.Tensor":
+    """Soft penalty for joints outside ``[lo, hi]`` (radians)."""
+    below = (lo - q).clamp(min=0.0)
+    above = (q - hi).clamp(min=0.0)
+    return (below**2 + above**2).sum(dim=-1).mean()
 
 
 def train(
@@ -95,8 +114,8 @@ def train(
             f"missing {train_path}; run: python -m residual_adaptive_ik.data.generate_supervised_data"
         )
 
-    x_train, y_train = arrays_to_obs_labels(load_npz(train_path))
-    x_val, y_val = arrays_to_obs_labels(load_npz(val_path))
+    x_train, y_train, q_ik_train, tip_train = arrays_to_obs_labels(load_npz(train_path))
+    x_val, y_val, q_ik_val, tip_val = arrays_to_obs_labels(load_npz(val_path))
 
     # Standardize observations (fit on train only).
     obs_mean = x_train.mean(axis=0)
@@ -111,6 +130,12 @@ def train(
     np.random.seed(seed)
 
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    lo_np, hi_np = load_joint_limits_rad()
+    lo_t = torch.tensor(lo_np, dtype=torch.float32, device=dev)
+    hi_t = torch.tensor(hi_np, dtype=torch.float32, device=dev)
+    fk = build_fk_module().to(dev)
+    fk.eval()  # FK has no learnable weights; keep in eval for BatchNorm-free chain
+
     limit_rad = float(model_cfg.get("output_limit_deg", 0.5)) * DEG2RAD
     hidden = list(model_cfg.get("hidden_sizes", [256, 256, 128]))
     model = ResidualIKModel(OBS_DIM, hidden, limit_rad).to(dev)
@@ -120,10 +145,22 @@ def train(
     lr = float(train_cfg.get("learning_rate", 1e-3))
     wd = float(train_cfg.get("weight_decay", 1e-5))
     lam_dq = float(loss_cfg.get("lambda_delta_q", 1.0))
+    lam_fk = float(loss_cfg.get("lambda_fk_pose", 0.0))
     lam_mag = float(loss_cfg.get("lambda_residual_magnitude", 1e-4))
+    lam_lim = float(loss_cfg.get("lambda_joint_limit", 0.0))
+
+    q_ik_train_t = torch.from_numpy(q_ik_train).to(dev)
+    tip_train_t = torch.from_numpy(tip_train).to(dev)
+    q_ik_val_t = torch.from_numpy(q_ik_val).to(dev)
+    tip_val_t = torch.from_numpy(tip_val).to(dev)
 
     train_loader = DataLoader(
-        TensorDataset(torch.from_numpy(x_train_n), torch.from_numpy(y_train)),
+        TensorDataset(
+            torch.from_numpy(x_train_n),
+            torch.from_numpy(y_train),
+            q_ik_train_t,
+            tip_train_t,
+        ),
         batch_size=batch,
         shuffle=True,
     )
@@ -136,17 +173,32 @@ def train(
 
     with metrics_path.open("w", encoding="utf-8", newline="") as csv_f:
         writer = csv.DictWriter(
-            csv_f, fieldnames=["epoch", "train_loss", "val_loss", "val_mae_rad"]
+            csv_f,
+            fieldnames=[
+                "epoch",
+                "train_loss",
+                "val_loss",
+                "val_mae_rad",
+                "val_fk_m_median",
+            ],
         )
         writer.writeheader()
         for epoch in range(1, n_epochs + 1):
             model.train()
             train_losses: list[float] = []
-            for xb, yb in train_loader:
+            for xb, yb, qik_b, tip_b in train_loader:
                 xb = xb.to(dev)
                 yb = yb.to(dev)
+                qik_b = qik_b.to(dev)
+                tip_b = tip_b.to(dev)
                 pred = model(xb)
                 loss = lam_dq * nn.functional.mse_loss(pred, yb)
+                q_final = qik_b + pred
+                if lam_fk > 0.0:
+                    tip_pred = fk(q_final)
+                    loss = loss + lam_fk * nn.functional.mse_loss(tip_pred, tip_b)
+                if lam_lim > 0.0:
+                    loss = loss + lam_lim * _joint_limit_penalty(q_final, lo_t, hi_t)
                 loss = loss + lam_mag * (pred**2).mean()
                 opt.zero_grad()
                 loss.backward()
@@ -158,25 +210,34 @@ def train(
                 xv = torch.from_numpy(x_val_n).to(dev)
                 yv = torch.from_numpy(y_val).to(dev)
                 pv = model(xv)
-                val_loss = float(
-                    (
-                        lam_dq * nn.functional.mse_loss(pv, yv)
-                        + lam_mag * (pv**2).mean()
-                    ).item()
-                )
+                val_loss = lam_dq * nn.functional.mse_loss(pv, yv)
+                qv = q_ik_val_t + pv
+                if lam_fk > 0.0:
+                    val_loss = val_loss + lam_fk * nn.functional.mse_loss(
+                        fk(qv), tip_val_t
+                    )
+                if lam_lim > 0.0:
+                    val_loss = val_loss + lam_lim * _joint_limit_penalty(
+                        qv, lo_t, hi_t
+                    )
+                val_loss = val_loss + lam_mag * (pv**2).mean()
+                val_loss_f = float(val_loss.item())
                 val_mae = float(torch.mean(torch.abs(pv - yv)).item())
+                tip_err = torch.linalg.norm(fk(qv) - tip_val_t, dim=-1)
+                val_fk_med = float(torch.median(tip_err).item())
 
             row = {
                 "epoch": float(epoch),
                 "train_loss": float(np.mean(train_losses)),
-                "val_loss": val_loss,
+                "val_loss": val_loss_f,
                 "val_mae_rad": val_mae,
+                "val_fk_m_median": val_fk_med,
             }
             history.append(row)
             writer.writerow(row)
             csv_f.flush()
-            if val_loss < best_val:
-                best_val = val_loss
+            if val_loss_f < best_val:
+                best_val = val_loss_f
                 torch.save(
                     {
                         "model_state": model.state_dict(),
@@ -186,14 +247,15 @@ def train(
                         "obs_mean": obs_mean,
                         "obs_std": obs_std,
                         "epoch": epoch,
-                        "val_loss": val_loss,
+                        "val_loss": val_loss_f,
                     },
                     best_path,
                 )
             if epoch == 1 or epoch % 10 == 0 or epoch == n_epochs:
                 print(
                     f"epoch {epoch:3d}/{n_epochs}  train={row['train_loss']:.5f}  "
-                    f"val={val_loss:.5f}  mae_rad={val_mae:.5e}"
+                    f"val={val_loss_f:.5f}  mae_rad={val_mae:.5e}  "
+                    f"val_fk_med_m={val_fk_med:.5e}"
                 )
 
     summary = {

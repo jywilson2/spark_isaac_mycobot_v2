@@ -1,5 +1,21 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Phase 3 completion — FK loss + acceptance gate (2026-07-16)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `learning/fk_torch.py` | **Created** | Differentiable batched FK for training |
+| `learning/train_supervised.py` | **Updated** | FK tip loss + joint-limit penalty |
+| `learning/evaluate_supervised.py` | **Updated** | Stress split, per-mode breakdown, acceptance gate |
+| `data/generate_supervised_data.py` | **Updated** | `perturbation_mode` in NPZ |
+| `configs/learning/supervised_residual.yaml` | **Updated** | `lambda_fk_pose`, evaluation thresholds |
+| `tests/test_phase3_acceptance.py` | **Created** | FK parity + gate contracts |
+| `docs/phase3_supervised.md` | **Updated** | Phase 3 complete metrics |
+
+**Verified:** host train 80 epochs → acceptance `passed`; pytest **107 passed**, 5 skipped.
+
+---
+
 ## Phase 3 supervised residual scaffold + first MLP (2026-07-16)
 
 | Path | Action | Notes |
