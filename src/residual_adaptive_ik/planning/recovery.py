@@ -555,9 +555,15 @@ def plan_via_standoff(
                         break
                 if leg2 is not None and leg2.ok:
                     break
-                # Classical IK seed → joint-space MotionGen to surface tip.
+                # Classical multi-seed IK → joint-space MotionGen to surface.
+                # Prefer a seed bank (current / home / mid-home) over a single
+                # mid-via seed; see spec.md § IK failure repositioning.
                 try:
                     from residual_adaptive_ik.kinematics.fk import Pose
+                    from residual_adaptive_ik.kinematics.ik_seed_bank import (
+                        build_seed_bank,
+                        solve_with_seed_bank,
+                    )
                     from residual_adaptive_ik.kinematics.numerical_ik import (
                         DampedLeastSquaresIK,
                     )
@@ -566,7 +572,14 @@ def plan_via_standoff(
                     pose_try = Pose(
                         position_m=tip_try, quaternion_wxyz=quat_mid
                     )
-                    ik_res = ik.solve(pose_try, seed_q=q_mid)
+                    seeds = build_seed_bank(q_mid, include_mid_home=True)
+                    ik_res = solve_with_seed_bank(
+                        ik,
+                        pose_try,
+                        seeds,
+                        q_current=q_mid,
+                        max_seeds=4,
+                    )
                     if bool(getattr(ik_res, "success", False)):
                         q_ik = _clamp_joints(ik_res.q)
                         leg2 = contact.plan_to_joint_goal(
@@ -578,10 +591,15 @@ def plan_via_standoff(
                         )
                         attempts_log.append(
                             f"via2_{tag}_m{cm:.3f}_ik:{leg2.message}"
+                            f"|{ik_res.reason}"
                         )
                         last_dt = float(leg2.dt_s)
                         if leg2.ok:
                             break
+                    else:
+                        attempts_log.append(
+                            f"via2_{tag}_m{cm:.3f}_ik:{ik_res.reason}"
+                        )
                 except Exception as exc:  # noqa: BLE001
                     attempts_log.append(f"via2_{tag}_ik_err:{exc}")
             if leg2 is not None and leg2.ok:

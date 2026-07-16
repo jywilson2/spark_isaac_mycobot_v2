@@ -31,8 +31,10 @@ README “Phase N libraries” section in the same change set (see `spec.md` § 
 | [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) | Kit viz logging | `PATH_OK` / `PATH_COLLISION` during host animation |
 | [cuRobo](https://curobo.org/) | Apache-2.0 GPU planner | Host `MotionGen` collision-free trajectories (fail-closed) |
 | [Isaac ROS cuMotion](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/index.html) | ROS 2 cuRobo-based motion | Future hardware / multi-waypoint recovery option |
-| [MoveIt 2](https://moveit.picknik.ai/) | ROS 2 planning (OMPL, etc.) | Named states, approach/retreat, pipeline retries |
+| [MoveIt 2](https://moveit.picknik.ai/) | ROS 2 planning (OMPL, etc.) | Named states, approach/retreat, pipeline retries; kinematics solver attempts / cached IK seed pattern |
 | [OMPL](https://ompl.kavrakilab.org/) | Sampling-based planning | Underpins many MoveIt planners |
+| [IKSel (arXiv:2503.22234)](https://arxiv.org/abs/2503.22234) | Numerical IK seed ranking | Joint-space seed bank + farthest-from-failed re-attempt (`ik_seed_bank.py`) |
+| [MoveIt kinematics config](https://moveit.picknik.ai/main/doc/examples/kinematics_configuration/kinematics_configuration_tutorial.html) | Solver attempts / cached IK | Practice reference for multi-seed IK retries |
 
 Vendor reach / speed reference: [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) (280 mm, 160 °/s) → `configs/robot/workspace.yaml`.  
 v1 even-coverage reference: `spark_isaac_mycobot_demo/isaac_lab/mdp_core.py` (cylindrical annulus + stratified demo bins).

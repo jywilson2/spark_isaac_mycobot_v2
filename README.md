@@ -43,8 +43,9 @@ Authoritative links: [REFERENCES.md](REFERENCES.md) § Phase 1 implementation li
 | **PyYAML** | `configs/planning/collision.yaml`. |
 | **pytest** | `tests/test_phase2_geometry.py` (+ validation obstacle wiring). |
 | **Isaac Sim** (host viz) | Logs `PATH_OK` / `PATH_COLLISION` during Phase 1 viz loop (same Kit entry). |
-| **cuRobo** (optional later, Apache-2.0) | Documented GPU planner for Spark — not required for Phase 2 foundation. |
-| **MoveIt 2** (optional later, ROS) | Documented for hardware stacks — not the residual brain. |
+| **cuRobo** (host, Apache-2.0) | GPU MotionGen + volumetric marker; fail-closed planning. |
+| **MoveIt 2** (optional later, ROS) | Approach/retreat + multi-seed IK practice reference — not the residual brain. |
+| **ik_seed_bank** (in-repo) | Joint-space multi-seed IK for sequential multi-target / via2 fallback. |
 
 Authoritative links: [REFERENCES.md](REFERENCES.md) § Phase 2 implementation libraries.
 
@@ -169,7 +170,7 @@ Phase 1 host runs (`run_isaac_viz.sh` / `smoke_isaac_viz.sh`) print many Kit lin
 
 If a **new** warning appears that names this repo’s prims, URDF, or Python modules, treat it as a bug: fix the asset/script, do not filter the log.
 
-**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan OK the tip approaches the **surface** and the sphere turns **green** on contact. On plan fail: timed **standoff via-waypoint** recovery, then fail-closed (yellow, no motion). Home is applied **once** at viz start; per-trial `--reset-to-home` is opt-in only (not used by default GUI smoke). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
+**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan OK the tip approaches the **surface** and the sphere turns **green** on contact. On plan fail: timed **standoff via-waypoint** recovery + multi-seed IK bank, then fail-closed (yellow, no motion). Home is applied **once** at viz start; per-trial home (`reset_to_home_before_each_trial` / `--reset-to-home`) is the independent-episode gate — use `--no-reset-to-home` for sequential multi-target (spec.md). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
 
 **Kit Console vs host terminal:** `print` goes to the host shell. Plan status lines are also mirrored with `carb.log_*` so they appear under Isaac Sim **Window → Console** (set the filter to Info/Verbose). That is not a live tee of the entire host terminal — only messages the viz process logs.
 
@@ -339,10 +340,11 @@ Short Phase 1 metrics + Phase 2 planning smoke for TDD / CI-like verification. D
 
 The IK target sphere relocates only after planning finishes (red on `PLAN_OK`, yellow after recovery fail) — not at the start of each trial.
 
-Home reset **per trial** (opt-in; YAML/default GUI smoke off — recovery is tested path-dependently). Viz always moves to home **once** before the first trial:
+Home reset **per trial** (independent-episode mode; YAML default on for the 1.0 gate). Sequential multi-target: `--no-reset-to-home`. Viz always moves to home **once** before the first trial:
 
 ```bash
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --no-reset-to-home
 # or:
 ISAAC_VIZ_SMOKE_RESET_TO_HOME=1 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
 ```

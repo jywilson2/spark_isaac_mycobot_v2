@@ -74,3 +74,9 @@ Do not start Phase 4 RL code until Phase 1 acceptance tests pass. Prefer complet
 
 * Do not claim sub-millimeter real-world accuracy unless hardware tests demonstrate it.
 * Simulation success thresholds (e.g. 1 mm) are sim metrics — document them as such in `docs/`.
+
+## Git workflow — landing on `main`
+
+* Integrating a feature branch into `main` (or preparing that branch to be pushed/landed as `main`) must be preceded by a **rebase onto the latest `main`**, not a merge of `main` into the feature branch.
+* Preferred sequence: `git fetch origin && git rebase origin/main` on the feature branch, resolve conflicts, re-run required verification, then fast-forward `main` (or open a PR that is rebase/FF-capable). Do **not** use `git merge main` as the integration path.
+* After rebasing a published branch, update the remote with a non-destructive push when possible; only force-with-lease when the user explicitly authorizes rewriting that branch.

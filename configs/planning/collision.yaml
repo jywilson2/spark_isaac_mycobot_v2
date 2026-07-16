@@ -31,8 +31,10 @@ target_obstacle_enabled: true
 gate_motion_on_plan_failure: true
 
 # Return to home_joint_positions_rad before each viz / diagnostic trial.
-# Enabled by default so the 1.0 rate gate is reproducible from a known
-# collision-free start. Use --no-reset-to-home for recovery stress testing.
+# Independent-episode mode (default true): reproducible 1.0 rate gate from a
+# known collision-free start. Sequential multi-target use case (spec.md): set
+# false or pass --no-reset-to-home so goals chain without per-target home.
+# Home is still applied once at viz session start either way.
 reset_to_home_before_each_trial: true
 
 # After a direct plan fails, retry via standoff waypoints until timeout.

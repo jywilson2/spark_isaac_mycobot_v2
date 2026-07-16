@@ -1,5 +1,21 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Sequential multi-target + IK seed bank (2026-07-16)
+
+| Path | Action | Notes |
+|------|--------|-------|
+| `spec.md` | **Updated** | Sequential multi-target use case; IK failure → preparatory repositioning strategy |
+| `.cursorrules` | **Updated** | Rebase onto `main` before landing (no merge-of-main path) |
+| `kinematics/ik_seed_bank.py` | **Created** | Joint-space seed bank + farthest-from-failed ordering |
+| `planning/recovery.py` | **Updated** | Via2 IK fallback uses seed bank (max 4 seeds) |
+| `tests/test_ik_seed_bank.py` | **Created** | Ordering + solve + spec contract |
+| `configs/planning/collision.yaml` | **Updated** | Comments clarify independent vs sequential modes |
+| `docs/phase2_geometry.md` / `REFERENCES.md` / `STATUS.md` / `README.md` | **Updated** | Dual modes + IKSel / MoveIt refs |
+
+**Worth review:** Seed bank is classical IK only; full “plan to preparatory `q_seed` then retry” for `INVALID_START` is still home-blend + vias (spec’d, not fully replacing home escape yet).
+
+---
+
 ## MARKER_NO_CONTACT reclassified as failure + INVALID_START via-fallthrough (2026-07-15)
 
 | Path | Action | Notes |

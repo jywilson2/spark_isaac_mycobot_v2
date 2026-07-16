@@ -448,6 +448,47 @@ planner replace `q_final = q_ik + clamp(Δq)`.
 6. Isaac viz executes planned trajectories and logs `PLAN_OK` / `PLAN_FAIL`; failed plans are gated (no motion). The IK target marker relocates only after planning finishes (`PLAN_OK` → red then EE motion; `PLAN_FAIL` after recovery → yellow). Viz/smoke fails when `PLAN_OK/(OK+FAIL)` is below `min_plan_ok_rate` (default 0.25; override `--min-plan-ok-rate` / `ISAAC_VIZ_MIN_PLAN_OK_RATE`).
 7. Results summarized in `docs/phase2_geometry.md`.
 8. Tutorial-quality module docstrings (why / units / links to `spec.md`).
+9. **Sequential multi-target use case (no per-target home):** see § Sequential multi-target sequences below. Independent-episode home reset may remain for a reproducible 1.0 gate, but must not be treated as the only operational mode.
+
+## Sequential multi-target sequences (required use case)
+
+**Problem.** Returning to `home_joint_positions_rad` before every IK target improves independent-trial success rates, but it does **not** match deployment: operators and higher-level planners often command a sequence of Cartesian goals where the arm must move **goal → goal** without an intervening retract-to-home.
+
+**Requirement.** Phase 2 must support both modes explicitly:
+
+| Mode | Flag / config | Role |
+|------|---------------|------|
+| **Independent episodes** | `reset_to_home_before_each_trial: true` / `--reset-to-home` | Benchmark convenience: known collision-free start; used for the strict 1.0 rate gate |
+| **Sequential multi-target** | `reset_to_home_before_each_trial: false` / `--no-reset-to-home` | Operational use case: each trial starts from the previous goal (or last safe pose); home is applied **once** at session start only |
+
+Acceptance for sequential mode:
+
+1. Viz / smoke can run a chain of targets with `--no-reset-to-home` (home once at start).
+2. Planning recovery + IK reseed (below) may reposition the arm **without** forcing a full home return between successful targets.
+3. Metrics for sequential mode are reported separately from the independent-episode 1.0 gate (do not claim the same rate without measuring it).
+4. Residual learning (Phases 3–4) must not assume every episode starts at home; observations already include `q_current`.
+
+## IK failure → preparatory repositioning (practice-based strategy)
+
+**Problem.** When numerical IK or collision-aware planning fails from the current configuration, randomly picking a Cartesian point “farther from the target” is a weak heuristic: it ignores joint-space basins of attraction, singularities, and whether a collision-free path exists to that seed.
+
+**Industry / research pattern** (MoveIt 2 kinematics attempts + cached IK; Descartes / multi-seed search; IKSel seed ranking; approach–retreat pipelines; hybrid classical refine after learned warm-start):
+
+1. **Maintain a joint-space seed bank**, not a random tip cloud:
+   - current `q`, configured home / retract, previous successful goals, workspace-stratified samples, optional cached IK solutions.
+2. **First attempt continuity:** seed from `q_current` (or nearest bank member in joint space) so sequential multi-target motions stay smooth.
+3. **On failure, reseed deliberately:**
+   - MoveIt-style: multiple solver attempts with random/restart seeds within consistency limits (`kinematics_solver_attempts`).
+   - IKSel-style: prefer seeds with small joint adjustment to the target; after a failed seed, try candidates **far from the failed seeds in joint space** (escape the same local minimum / limit wall), not merely farther in Cartesian distance from the marker.
+4. **Collision-aware move to a preparatory configuration** when the start state is invalid or the seed itself is unreachable:
+   - Plan `q_current → q_seed` with the motion planner (cuRobo / future MoveIt), then retry IK / surface approach from `q_seed`.
+   - Prefer named retract / standoff **joint** poses over open-loop tip jitter.
+5. **Keep classical approach–retreat vias** for path existence (standoff clearances × lateral yaw, nearest→farthest). That is motion planning recovery, complementary to IK reseeding.
+6. **Do not** use bounded residual `Δq` to invent large preparatory motions — residuals stay within clamp limits after a classical `q_ik`.
+
+**Implementation contract (Phase 2):** `residual_adaptive_ik.kinematics.ik_seed_bank` provides seed ordering + multi-seed `solve`; recovery may call it when a single mid-via IK seed fails. Home blend remains a last-resort escape for `INVALID_START_*`, not the primary multi-target strategy.
+
+References: MoveIt kinematics configuration (solver attempts / cached IK); [IKSel](https://arxiv.org/abs/2503.22234) (seed ranking + farthest-failed re-attempt); approach/retreat in MoveIt pick pipelines; cuRobo MotionGen retries. See [REFERENCES.md](REFERENCES.md) Phase 2 library table.
 
 ---
 
@@ -1154,7 +1195,8 @@ Required Phase 2 order:
 6. host viz `PATH_OK` / `PATH_COLLISION` logging,
 7. `docs/phase2_geometry.md` + `docs/phase2_status_and_resume.md` (what works / WIP / resume after hiatus),
 8. host cuRobo MotionGen + volumetric marker + fail-closed gate + via planning recovery (Spark),
-9. (optional later) MoveIt / PhysX / partial-via execution polish.
+9. sequential multi-target mode (`--no-reset-to-home`) + joint-space IK seed bank for failed IK,
+10. (optional later) MoveIt / PhysX / plan-to-preparatory-seed polish.
 
 ## Step 4 — Implement Phase 3 (supervised residual)
 

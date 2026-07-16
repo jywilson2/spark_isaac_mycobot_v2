@@ -1,5 +1,31 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-16 00:41 -07:00
+Veriify that wip_phase2 and wip_phase3 have been pushed to remote. Add to .cursorrules that all pushes to main from a branch should be preceded by a rebase, not a merge.
+
+I have been reviewing the changes made in wip_phase2 and I am conerned about the change to start every episode with a return to home. Yes, it increases the likelihood of successfully completing the test, but it fails to capture the use case where multiple IK targets will need to be reached, without returning to home. Add the latter use case to @v2 residual IK (active)/spec.md .
+
+Is there a strategy that would support the repositioning of the arm in preparation for an IK calculation when the IK calculation fails? The current approach of just randoming selecting a position farther away from the target may not be adequate. Can you examine the pattern of practice when performing IK in this scenario by reading existing sample code and research papers?
+
+Once the above changes are complete and tested, commit to wip_phase2, and push to remote. Then resume work on wip_phase3, iterate as needed, and when all tests pass commit, and push to the report repo.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 00:16 -07:00
+Yes, please complete phase 3, and iterate as needed.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-15 15:10 -07:00
+The beginning of the above subagent result is already visible to the user. Perform any follow-up actions (if needed). DO NOT regurgitate or reiterate its result unless asked.
+
+(Also: once a fix is devised and Phase 3 work begins, iterate until Phase 3 is successful; commit and push to wip_phase3 when all Phase 3 tests pass.)
+## END
+
+# Old prompts:
+
 ## BEGIN: 2026-07-15 14:56 -07:00
 IMPORTANT CORRECTION FROM THE USER:
 

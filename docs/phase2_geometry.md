@@ -59,14 +59,22 @@ Uses cuRobo kinematics spheres along each planned (or rejected-lerp preview) tra
 
 Marker colors in GUI: **red** pending, **green** contact, **yellow** plan fail. Plan status is mirrored to Kit **Window → Console** (`carb.log_*`); that is not a full host-terminal tee.
 
-## Home reset before each trial
+## Home reset vs sequential multi-target
 
-Optional and **disabled by default** (`reset_to_home_before_each_trial: false`). Enable via YAML or CLI:
+Two explicit modes ([spec.md](../spec.md) § Sequential multi-target sequences):
+
+| Mode | Config / CLI | When to use |
+|------|--------------|-------------|
+| **Independent episodes** | `reset_to_home_before_each_trial: true` (YAML default) / `--reset-to-home` | Reproducible 1.0 rate gate from a known start |
+| **Sequential multi-target** | `false` / `--no-reset-to-home` | Operational chain of IK goals without per-target home |
+
+Home is always applied **once** at viz session start. Per-trial home is a benchmark convenience — not the only acceptance path.
 
 ```bash
+# Independent episodes (YAML default / explicit):
 ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
-# viz direct:  ... -- --reset-to-home
-# diagnose:    ... diagnose_marker_ee_contact.sh --reset-to-home
+# Sequential multi-target (path-dependent recovery):
+./scripts/host/smoke_isaac_viz.sh --gui --no-reset-to-home
 ```
 
 ## Plan recovery (standoff via-waypoints)
@@ -97,17 +105,20 @@ Headless audit (fails if any PLAN_FAIL has zero via attempts):
 
 Unit tests: `tests/test_recovery_audit.py`.
 
-## Coping with motion-planning failures (strategy)
+## Coping with motion-planning / IK failures (strategy)
 
 | Strategy | Status | Notes |
 |----------|--------|-------|
 | Fail-closed gate | Implemented | Yellow marker; no motion |
-| Reset / retract to home | Optional (default **off**) | YAML flag |
-| Approach standoff then contact (via) | **Implemented** | Timed recovery loop |
-| Lateral / alternate IK seeds | Not yet | Future |
+| Independent-episode home reset | Optional (YAML default **on** for 1.0 gate) | Not the sequential multi-target path |
+| Approach standoff then contact (via) | **Implemented** | Timed recovery; nearest → farthest |
+| Multi-seed IK bank (joint space) | **Implemented** | `ik_seed_bank.py`; used in via2 IK fallback |
+| Plan to preparatory `q_seed` then retry | Spec’d | Prefer over random far tip jitter |
 | MoveIt 2 / cuMotion pipelines | Documented | Optional later |
 
-**Residual learning is not the right tool for this.** Phase 3–4 residuals are bounded `Δq` on top of classical IK. Use planners for path existence.
+**Do not rely on random Cartesian points farther from the target** as the primary IK recovery. Prefer joint-space seed banks (current / home / prior goals), MoveIt-style multi-attempt reseeding, and IKSel-style “far from failed seeds,” then collision-aware motion to a preparatory configuration. See [spec.md](../spec.md) § IK failure → preparatory repositioning.
+
+**Residual learning is not the right tool for this.** Phase 3–4 residuals are bounded `Δq` on top of classical IK. Use planners + classical multi-seed IK for path / seed existence.
 
 ### MoveIt 2 vs cuRobo (this context)
 

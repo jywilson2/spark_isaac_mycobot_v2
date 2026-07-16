@@ -24,8 +24,10 @@ def load_robot_config(path: Path | None = None) -> dict[str, Any]:
 def load_home_joint_positions_rad(path: Path | None = None) -> np.ndarray:
     """Return the configured home / ready joint vector (6,), radians.
 
-    Used to reset the arm at the start of each independent planning trial so
-    success rates are not biased by the previous goal configuration.
+    Used once at viz session start, and optionally before each *independent*
+    planning trial when ``reset_to_home_before_each_trial`` is enabled.
+    Sequential multi-target mode (``--no-reset-to-home``) keeps the arm at the
+    previous goal between targets — see ``spec.md``.
     """
     cfg = load_robot_config(path)
     q = np.asarray(cfg.get("home_joint_positions_rad", [0.0] * 6), dtype=float).reshape(-1)

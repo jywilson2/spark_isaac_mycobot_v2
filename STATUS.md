@@ -36,9 +36,11 @@ Last updated: **2026-07-15**
 
 **Fix (part 3 — via-loop escape):** When all via candidates fail with `INVALID_START_STATE_*_COLLISION` and the direct plan returned a non-INVALID_START error (e.g. `FINETUNE_TRAJOPT_FAIL`), the recovery loop now blends toward home before retrying. Escape weight cap raised from 0.95 to 0.99 (closer to collision-free home). Weight resets to 0.40 after direct-plan saturation so the via loop has its own escape budget.
 
-**Fix (part 4 — reset-to-home default):** Changed `reset_to_home_before_each_trial` from `false` to `true` in `collision.yaml`. With `--no-reset-to-home` and 200 random targets from arbitrary start states, ~3-5% of trials are geometrically unreachable by the planner (stochastic floor). Resetting to home before each trial ensures a consistent collision-free start. Path-dependent recovery stress testing is still available via `--no-reset-to-home`.
+**Fix (part 4 — reset-to-home default):** Changed `reset_to_home_before_each_trial` from `false` to `true` in `collision.yaml` for the **independent-episode** 1.0 rate gate. This is a benchmark convenience, **not** the only operational mode. Sequential multi-target (goal→goal without per-target home) is a required use case in [spec.md](spec.md) — run with `--no-reset-to-home`. Path-dependent recovery stress testing uses the same flag.
 
 **Fix (part 5 — skip overlapping targets):** Even from home, some random IK targets place the 12 mm marker sphere inside the robot's proximal collision capsules (e.g. xyz≈(0, −0.12, 0.10)). These always fail with `INVALID_START_STATE_WORLD_COLLISION`. When `reset_home` is on, `run_ik_viz.py` now prefilters such targets (`SKIP_OVERLAPPING_TARGET`) — they are not counted for or against the rate gate.
+
+**IK reseeding (2026-07-16):** Added joint-space `ik_seed_bank` (MoveIt / IKSel practice): order seeds by continuity, then farthest-from-failed; wired into via2 IK fallback. Spec documents sequential multi-target + preparatory repositioning strategy. `.cursorrules`: rebase onto `main` before landing (no merge-of-main path).
 
 **Verification (2026-07-15):** Spark `run_verification.sh spark` with 200 GUI episodes → **rate=1.000** (180 ok / 0 fail; 20 keepout skips). MARKER_NO_CONTACT=0 after outer_tol + CONTACT_NUDGE.
 
