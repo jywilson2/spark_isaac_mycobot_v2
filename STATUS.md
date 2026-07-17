@@ -62,14 +62,17 @@ helped past Ep5-style through paths.
 **Iter12 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — Ep8
 mid-path SIDE_GRAZE lat=11 mm axis_out=76° (honest); settle no_contact 15 mm.
 
-**Iter13 change:** reject MotionGen approaches with mid-path tip-face
-`side_graze` / `through` / clear `wrong_side` when tip is in the surface shell.
+**Iter13 smoke:** headless viz=16 abort=1 → **FAIL** `ok=6 fail=1` — Ep7
+mid-path wrong_side axis_out=128°. Tip-face path reject was **silently
+skipped** (`isaac_sim` not on residual import path).
+
+**Iter14 change:** add repo root to ``sys.path`` before importing
+``classify_tip_contact`` for approach tip-face validation.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 11 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 arm_body | arm-body approach reject |
-| 12 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 side_graze | tip-face path reject |
-| 13 | headless (pending) | — | then long GUI viz=48 |
+| 13 | headless viz=16 abort=1 | **FAIL** 6/7 — Ep7 axis_out=128° (check skipped) | fix isaac_sim import |
+| 14 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -992,6 +995,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:52 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:54 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

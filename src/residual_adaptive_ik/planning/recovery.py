@@ -994,12 +994,24 @@ def try_oriented_tip_face_contact(
                         # Reject tip-face side_graze / through / clear wrong_side
                         # samples along the approach (iter12 Ep8 lat=11 mm,
                         # axis_out=76° mid-path SIDE_GRAZE).
+                        # Import via repo root — ``isaac_sim`` is not on the
+                        # residual package path (silent skip caused iter13 Ep7
+                        # axis_out=128° to reach execution).
+                        classify_tip_contact = None
                         try:
-                            from isaac_sim.target_marker import (
-                                classify_tip_contact,
+                            import sys
+                            from pathlib import Path
+
+                            _repo = Path(__file__).resolve().parents[3]
+                            if str(_repo) not in sys.path:
+                                sys.path.insert(0, str(_repo))
+                            from isaac_sim.target_marker import (  # noqa: WPS433
+                                classify_tip_contact as _ctc,
                             )
+
+                            classify_tip_contact = _ctc
                         except Exception:
-                            classify_tip_contact = None  # type: ignore
+                            classify_tip_contact = None
                         if classify_tip_contact is not None:
                             standoff_ref = np.asarray(
                                 approach.standoff_position_m, dtype=float
@@ -1015,7 +1027,7 @@ def try_oriented_tip_face_contact(
                                 )
                                 if d_tf > sphere_radius_m + 0.008:
                                     continue
-                                fok, freason, fm = classify_tip_contact(
+                                _fok, freason, fm = classify_tip_contact(
                                     tip_tf,
                                     sphere_center_m,
                                     approach_from_m=standoff_ref,
