@@ -1,5 +1,20 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter5: DLS standoff approach after MotionGen fail (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — `plan_dls_standoff_approach_lerp`: classical DLS + joint
+   lerp to oriented standoff when cuRobo approach IK_FAIL / FINETUNE fails;
+   rejects tip-immersing mid-lerp chords. Enabled only for
+   `CuRoboMotionPlanner` (`contact_dls_approach_fallback`).
+2. **`collision.yaml`** — `contact_orientation_cone_max_rad` 0.22→0.26;
+   `contact_dls_approach_fallback: true`.
+3. **`tests/test_dls_standoff_approach.py`** — unit coverage.
+
+**Review:** DLS approach has no cuRobo collision spheres — immersion chord
+check only. Watch for proximal arm / EE-side mid-path grazes under latch.
+
 ## Iter4: FK tip-omit pad gate + FakePlanner track skip (2026-07-17)
 
 **Enumerated changes**

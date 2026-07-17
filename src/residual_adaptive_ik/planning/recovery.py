@@ -208,6 +208,87 @@ def plan_axial_tip_omit_lerp(
     )
 
 
+def plan_dls_standoff_approach_lerp(
+    q_start_rad: np.ndarray,
+    standoff_position_m: np.ndarray,
+    quaternion_wxyz: np.ndarray,
+    *,
+    sphere_center_m: np.ndarray,
+    sphere_radius_m: float,
+    model: UrdfKinematicModel,
+    dt_s: float = 0.02,
+    n_samples: int = 24,
+) -> PlannedTrajectory:
+    """Spheres-ON standoff approach via DLS-IK + joint lerp (MotionGen fallback).
+
+    Why
+    ---
+    Sequential multi-target episodes often leave the wrist oriented for the
+    *previous* marker. cuRobo then ``IK_FAIL`` / ``FINETUNE_TRAJOPT_FAIL`` on a
+    short (~50–80 mm) pad-facing approach even though classical DLS reaches
+    the standoff. A DLS solve + joint lerp recovers those handoffs without
+    widening tip-omit. Rejects paths whose tip immerses the marker mid-lerp
+    (chord cut through the sphere).
+    """
+    q0 = _clamp_joints(np.asarray(q_start_rad, dtype=float).reshape(6))
+    pose_tgt = Pose(
+        position_m=np.asarray(standoff_position_m, dtype=float).reshape(3),
+        quaternion_wxyz=np.asarray(quaternion_wxyz, dtype=float).reshape(4),
+    )
+    ik = DampedLeastSquaresIK(
+        max_iterations=160,
+        damping=2e-3,
+        position_tol_m=1.5e-3,
+        orientation_tol_rad=0.04,
+        enforce_joint_limits=True,
+        model=model,
+    )
+    sol = ik.solve(pose_tgt, seed_q=q0)
+    if not sol.success:
+        return PlannedTrajectory(
+            waypoints_rad=np.zeros((0, 6)),
+            dt_s=float(dt_s),
+            success=False,
+            backend="dls_approach",
+            message=f"plan_failed:dls_approach_ik|{sol.reason}",
+        )
+    q1 = _clamp_joints(np.asarray(sol.q, dtype=float).reshape(6))
+    tip1 = np.asarray(
+        forward_kinematics(q1, model=model).position_m, dtype=float
+    ).reshape(3)
+    tip_err = float(np.linalg.norm(tip1 - pose_tgt.position_m))
+    if tip_err > 0.004:
+        return PlannedTrajectory(
+            waypoints_rad=np.zeros((0, 6)),
+            dt_s=float(dt_s),
+            success=False,
+            backend="dls_approach",
+            message=f"plan_failed:dls_approach_tip_err_m={tip_err:.4f}",
+        )
+    wp = interpolate_joint_path(q0, q1, n_samples=max(2, int(n_samples)))
+    center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+    r_min = float(sphere_radius_m) - 0.001  # tip must stay outside (≤1 mm tol)
+    for q in wp:
+        tip = np.asarray(
+            forward_kinematics(q, model=model).position_m, dtype=float
+        ).reshape(3)
+        if float(np.linalg.norm(tip - center)) < r_min:
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=float(dt_s),
+                success=False,
+                backend="dls_approach",
+                message="plan_failed:dls_approach_tip_immerses_marker",
+            )
+    return PlannedTrajectory(
+        waypoints_rad=wp,
+        dt_s=float(dt_s),
+        success=True,
+        backend="dls_approach",
+        message="ok|dls_standoff_approach_lerp",
+    )
+
+
 def fk_pad_aligned_for_tip_omit(
     q_rad: np.ndarray,
     normal_outward: np.ndarray,
@@ -815,6 +896,51 @@ def try_oriented_tip_face_contact(
                     f"approach_fail q{qi}/{len(quat_candidates)-1} "
                     f"msg={leg_ap.message}",
                 )
+        if leg_ap is None or not leg_ap.ok:
+            # MotionGen often fails on sequential handoffs (~50–80 mm) when the
+            # wrist still faces the previous marker. Try classical DLS → joint
+            # lerp to the oriented standoff before giving up on tip-omit/vias.
+            # Unit FakePlanners are not CuRoboMotionPlanner — skip so via-path
+            # tests still exercise MotionGen-fail → via recovery.
+            use_dls = (
+                type(planner).__name__ == "CuRoboMotionPlanner"
+                and bool(cfg.get("contact_dls_approach_fallback", True))
+            )
+            if use_dls:
+                _decision(
+                    decision_emit,
+                    log,
+                    "approach_motiongen_failed → dls_standoff_approach",
+                )
+                for qi, quat_try in enumerate(quat_candidates):
+                    leg_ap = plan_dls_standoff_approach_lerp(
+                        q_cur,
+                        approach.standoff_position_m,
+                        quat_try,
+                        sphere_center_m=sphere_center_m,
+                        sphere_radius_m=sphere_radius_m,
+                        model=mdl,
+                        dt_s=last_dt,
+                        n_samples=24,
+                    )
+                    log.append(f"contact_approach_dls_q{qi}:{leg_ap.message}")
+                    last_dt = float(leg_ap.dt_s)
+                    if leg_ap.ok:
+                        quat = np.asarray(quat_try, dtype=float).reshape(4)
+                        chosen_quat = quat.copy()
+                        _decision(
+                            decision_emit,
+                            log,
+                            f"approach_ok_dls q{qi} backend={leg_ap.backend}",
+                        )
+                        break
+                    if qi == 0 or qi == len(quat_candidates) - 1:
+                        _decision(
+                            decision_emit,
+                            log,
+                            f"approach_dls_fail q{qi}/{len(quat_candidates)-1} "
+                            f"msg={leg_ap.message}",
+                        )
         if leg_ap is None or not leg_ap.ok:
             # Last resort: tip-omit only when already inside the short axial
             # window AND the pad already faces the marker. Long tip-omit

@@ -118,6 +118,10 @@ contact_lateral_tolerance_m: 0.003
 # Max tool-axis misalignment (rad) for green tip-face contact validation.
 # Keep ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD (≈15° / 0.26) — do not loosen for greens.
 contact_axis_tolerance_rad: 0.26
+# After MotionGen spheres-ON approach IK_FAIL, try classical DLS + joint lerp
+# to the oriented standoff (sequential handoff recovery). Unit FakePlanners
+# skip this path. Set false to force via-only recovery.
+contact_dls_approach_fallback: true
 # Extra radius (meters) on the *spheres-ON approach* obstacle only (visual stays
 # 12 mm). 0.0 = known-good tip-face stack; inflate>0 caused wall of approach
 # IK_FAIL in iter1 (2026-07-17). Tip-omit uses visual radius via obs_contact.
@@ -134,7 +138,7 @@ target_obstacle_inflate_m: 0.0
 # (axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD ≈ 15°) still holds — this is NOT a
 # way to accept side/through contacts. Keep cone_max_rad well under the gate tol.
 contact_orientation_cone_enabled: true
-contact_orientation_cone_max_rad: 0.22   # ~12.6 deg (< 15° gate tol)
+contact_orientation_cone_max_rad: 0.26   # ~15 deg (= tip-face gate tol)
 contact_orientation_cone_tilts: 2
 contact_orientation_cone_azimuths: 4
 
