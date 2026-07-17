@@ -55,14 +55,16 @@ axis_out=15–17° (just over tip-face tol) — mid-path latch was too aggressiv
 mid-path SIDE_GRAZE→IMMERSED→THROUGH (tip punched through marker) then green.
 Honest latch.
 
-**Iter11 change:** reject MotionGen approach waypoints whose FK tip immerses
-the marker (`tip_path_avoids_marker_immersion`); try next cone / DLS.
+**Iter11 smoke:** headless viz=16 abort=1 → **FAIL** `ok=5 fail=1` — Ep6
+`PLAN_FAIL(arm_body_contact)` (proximal link ∩ marker). Tip immersion reject
+helped past Ep5-style through paths.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
 | 9 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 axis_out≈15–17° | latch threshold |
 | 10 | headless viz=16 abort=1 | **FAIL** 4/5 — Ep5 tip through | reject immersing approaches |
-| 11 | headless (pending) | — | then long GUI viz=48 |
+| 11 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 arm_body_contact | keep arm clear of marker |
+| 12 | (next) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -973,6 +975,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:48 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:51 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 
