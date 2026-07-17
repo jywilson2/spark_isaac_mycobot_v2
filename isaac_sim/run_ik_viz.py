@@ -855,14 +855,28 @@ def run_viz(args: argparse.Namespace) -> int:
                 )
                 return bool(ok)
 
-            to_show = sorted(
-                to_show,
-                key=lambda t: (0 if _in_region(t) else 1, int(t.index)),
-            )
-            _viz_log(
-                "Phase 2 candidate order: prefer Dexterous Region first "
-                f"(margin_m={region_margin_m:.3f})"
-            )
+            in_region = [t for t in to_show if _in_region(t)]
+            n_out = len(to_show) - len(in_region)
+            if in_region:
+                # Drop out-of-region poses before the countable loop so they do
+                # not inflate SKIPPED_UNREACHABLE / candidates (iter24: contact
+                # rate=1.0 but skip_frac=0.60 from geometric outsides).
+                to_show = sorted(in_region, key=lambda t: int(t.index))
+                _viz_log(
+                    "Phase 2 candidates: Dexterous Region only "
+                    f"(kept={len(to_show)} dropped_out_of_region={n_out} "
+                    f"margin_m={region_margin_m:.3f})"
+                )
+            else:
+                to_show = sorted(
+                    to_show,
+                    key=lambda t: (0 if _in_region(t) else 1, int(t.index)),
+                )
+                _viz_log(
+                    "Phase 2 candidate order: prefer Dexterous Region first "
+                    f"(margin_m={region_margin_m:.3f}; no in-region samples)",
+                    level="warn",
+                )
 
         n_countable_target = max(0, int(args.visualize))
         n_countable = 0  # PLAN_OK + PLAN_FAIL only (skips do not count)

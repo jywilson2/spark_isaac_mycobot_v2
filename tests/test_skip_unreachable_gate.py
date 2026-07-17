@@ -38,6 +38,8 @@ def test_collision_yaml_declares_skip_unreachable_gate():
 def test_run_ik_viz_excludes_skips_from_episode_count():
     src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
     assert "n_countable" in src
+    assert "Dexterous Region only" in src
+    assert "dropped_out_of_region" in src
     assert "not counted as an episode" in src or "excluded from episode count" in src
     assert "meets_max_skip_unreachable_frac" in src
     assert "proximal_arm_contacts_target" in src
