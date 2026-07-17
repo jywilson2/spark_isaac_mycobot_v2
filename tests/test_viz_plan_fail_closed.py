@@ -222,11 +222,9 @@ def test_viz_settle_side_back_immerse_become_plan_fail():
     src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
     assert "CONTACT_INVALID_SETTLE" in src
     assert "classify_tip_contact" in src
-    assert 'fail_reason_tag = (\n                            "immersed" if freason == "immersed" else "invalid_side"\n                        )' in src or (
-        '"immersed" if freason == "immersed" else "invalid_side"' in src
-    )
+    assert '"immersed"' in src and '"no_contact"' in src and '"invalid_side"' in src
+    assert "fail_reason_tag" in src
     assert "PLAN_FAIL({fail_reason_tag})" in src or 'PLAN_FAIL({fail_reason_tag})' in src
-    assert '"invalid_side"' in src and '"immersed"' in src
     assert "settle_has_side_sphere_hits" in src
     assert "MARKER_EE_SIDE_SPHERE" in src
     # Mid-path diagnostic labels for the same failure modes.
@@ -238,6 +236,9 @@ def test_viz_settle_side_back_immerse_become_plan_fail():
     # Mid-path side/back graze latches settle PLAN_FAIL (not warn-only).
     assert "CONTACT_INVALID_MIDPATH_GRAZE" in src
     assert "mid_path_side_or_back" in src
+    # Fail-fast after settle reclassify as well as gated planning fails.
+    assert "EARLY_ABORT" in src
+    assert "early_abort_after_fails" in src
 
 
 def test_viz_defers_marker_until_plan_outcome():

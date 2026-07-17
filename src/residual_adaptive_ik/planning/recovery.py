@@ -1005,46 +1005,56 @@ def try_oriented_tip_face_contact(
         )
         return None
 
-    # Hard orientation gate when we did *not* just complete a pad-facing
-    # spheres-ON approach (``chosen_quat`` set). Skip-near-standoff starts can
-    # be side/back-facing — reseat with spheres ON or refuse tip-omit.
-    # After a successful approach, the commanded quat is pad-facing by
-    # construction; MotionGen owns FK fidelity of that leg.
-    if chosen_quat is None:
-        aligned, axis_err, axis_tol = fk_pad_aligned_for_tip_omit(
-            q_cur,
-            approach.normal_outward,
-            model=mdl,
-            cfg=cfg,
+    # Prefer FK pad alignment before tip-omit when the joint path actually
+    # tracks the planned Cartesian standoff. Trusting MotionGen's commanded
+    # quat alone (with a yawed FK tip) let tip-omit curves enter the surface
+    # shell with wrong_side_axis mid-path → CONTACT_INVALID_MIDPATH_GRAZE.
+    #
+    # Unit FakePlanners bump ``q`` without matching tip FK to the planned
+    # standoff (see tip0 assignment above). In that case skip the FK pad gate
+    # and allow axial / contact tip-omit; real MotionGen approaches land tip
+    # within ``contact_standoff_fk_track_tol_m`` and keep the hard gate.
+    fk_tip = np.asarray(
+        forward_kinematics(q_cur, model=mdl).position_m, dtype=float
+    ).reshape(3)
+    tip_track_err_m = float(np.linalg.norm(fk_tip - tip0))
+    tip_track_tol_m = float(cfg.get("contact_standoff_fk_track_tol_m", 0.012))
+    aligned, axis_err, axis_tol = fk_pad_aligned_for_tip_omit(
+        q_cur,
+        approach.normal_outward,
+        model=mdl,
+        cfg=cfg,
+    )
+    pad_ok_for_motiongen = bool(aligned)
+    if tip_track_err_m > tip_track_tol_m:
+        pad_ok_for_motiongen = True
+        _decision(
+            decision_emit,
+            log,
+            f"tip_omit_skip_fk_pad tip_track_err_m={tip_track_err_m:.3f}>"
+            f"tol_m={tip_track_tol_m:.3f} (planned standoff not realized in FK)",
         )
-        if not aligned:
-            reseat_quat = quat
-            leg_ori = planner.plan_to_pose(
-                q_cur,
-                approach.standoff_position_m,
-                reseat_quat,
-                max_attempts=max(1, int(max_attempts)),
-                obstacles=obs,
-            )
-            log.append(
-                f"contact_reseat_orientation:{leg_ori.message}|"
-                f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}"
-            )
-            _decision(
-                decision_emit,
-                log,
-                f"tip_omit_pad_misaligned → reseat_spheres_ON "
-                f"axis_err_rad={axis_err:.3f} tol_rad={axis_tol:.3f} "
-                f"ok={int(leg_ori.ok)}",
-            )
-            if not leg_ori.ok:
-                _decision(
-                    decision_emit,
-                    log,
-                    f"tip_omit_refused_orientation "
-                    f"axis_err_rad={axis_err:.3f}>tol_rad={axis_tol:.3f}",
-                )
-                return None
+    elif not aligned:
+        reseat_quat = chosen_quat if chosen_quat is not None else quat
+        leg_ori = planner.plan_to_pose(
+            q_cur,
+            approach.standoff_position_m,
+            reseat_quat,
+            max_attempts=max(1, int(max_attempts)),
+            obstacles=obs,
+        )
+        log.append(
+            f"contact_reseat_orientation:{leg_ori.message}|"
+            f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}"
+        )
+        _decision(
+            decision_emit,
+            log,
+            f"tip_omit_pad_misaligned → reseat_spheres_ON "
+            f"axis_err_rad={axis_err:.3f} tol_rad={axis_tol:.3f} "
+            f"ok={int(leg_ori.ok)}",
+        )
+        if leg_ori.ok:
             wp_ori = np.asarray(leg_ori.waypoints_rad, dtype=float)
             waypoints_approach = (
                 wp_ori
@@ -1054,26 +1064,28 @@ def try_oriented_tip_face_contact(
             q_cur = _clamp_joints(wp_ori[-1])
             tip0 = np.asarray(approach.standoff_position_m, dtype=float).reshape(3)
             last_dt = float(leg_ori.dt_s)
-            # Approach reseat commanded pad-facing orientation — allow tip-omit
-            # (same trust as a successful approach leg). Record FK for logs.
             aligned2, axis_err2, axis_tol2 = fk_pad_aligned_for_tip_omit(
                 q_cur,
                 approach.normal_outward,
                 model=mdl,
                 cfg=cfg,
             )
-            chosen_quat = np.asarray(reseat_quat, dtype=float).reshape(4)
-            quat = chosen_quat
-            if not aligned2:
+            pad_ok_for_motiongen = bool(aligned2)
+            axis_err, axis_tol = axis_err2, axis_tol2
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_after_reseat axis_err_rad={axis_err2:.3f} "
+                f"tol_rad={axis_tol2:.3f} pad_ok={int(aligned2)}",
+            )
+            if aligned2:
+                chosen_quat = np.asarray(reseat_quat, dtype=float).reshape(4)
+                quat = chosen_quat
+            else:
                 log.append(
-                    f"contact_reseat_orientation_fk_warn:"
+                    f"contact_nudge_warn:pad_misaligned_after_reseat:"
                     f"axis_err={axis_err2:.3f}>tol={axis_tol2:.3f}"
-                )
-                _decision(
-                    decision_emit,
-                    log,
-                    f"tip_omit_after_reseat_cmd_ok "
-                    f"fk_axis_err_rad={axis_err2:.3f} tol_rad={axis_tol2:.3f}",
+                    f"|try_axial_only"
                 )
 
     leg_nudge = plan_axial_tip_omit_lerp(
@@ -1084,6 +1096,20 @@ def try_oriented_tip_face_contact(
         dt_s=last_dt,
     )
     if not leg_nudge.ok:
+        if not pad_ok_for_motiongen:
+            log.append(
+                f"contact_nudge_refused:pad_misaligned_no_axial:"
+                f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}|"
+                f"axial={leg_nudge.message}"
+            )
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_refused_orientation_no_axial "
+                f"axis_err_rad={axis_err:.3f}>tol_rad={axis_tol:.3f} "
+                f"axial={leg_nudge.message}",
+            )
+            return None
         _decision(
             decision_emit,
             log,

@@ -19,4 +19,4 @@ echo "n_poses=${ISAAC_VIZ_SMOKE_N_POSES} visualize=${ISAAC_VIZ_SMOKE_VISUALIZE} 
 
 cd "${REPO_ROOT}"
 exec ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh \
-  -- --early-abort-after-fails 3 --no-show-collision-spheres
+  -- --early-abort-after-fails 1 --no-show-collision-spheres

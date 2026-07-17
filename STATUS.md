@@ -19,11 +19,18 @@ paths caused mid-path `SIDE_GRAZE` then false greens).
 approach `IK_FAIL` wall from inflate=6 mm / standoff=12 mm. Reverted inflate→0,
 standoff/nudge→8 mm; **kept** axial tip-omit lerp + tip-face/latch gates.
 
+**Iter4 change:** FK pad gate before tip-omit, but **skip** when planned
+standoff is not realized in FK (`contact_standoff_fk_track_tol_m=12 mm`) so
+unit FakePlanners still work; MotionGen tip-omit refused only when FK tracks
+and pad is misaligned after reseat. Settle-path early-abort already wired.
+Headless iter script uses `--early-abort-after-fails 1`.
+
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
 | 1 | headless viz=16 abort=1 | **FAIL** 0/1 (inflate too tight) | revert inflate |
 | 2 | headless viz=16 (abort only if ok=0) | **FAIL** 14/16 — Ep2 settle `no_contact` dist=14.3mm; Ep7 `axis_out=15°` | tighter axial IK + abort-on-any-fail |
-| 3 | (pending) | — | headless abort=1 then GUI viz=48 |
+| 3 | headless viz=16 abort=1 | **FAIL** 13/16 — settle `no_contact` + mid-path latch | hard FK tip-omit gate |
+| 4 | unit + headless (pending) | unit green; headless/GUI next | long GUI viz=48 rate=1.0 |
 
 ## Spec freeze — contact failures (2026-07-17)
 

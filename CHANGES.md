@@ -1,5 +1,25 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter4: FK tip-omit pad gate + FakePlanner track skip (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — reseat + axial tip-omit first; refuse free MotionGen
+   tip-omit when FK tracks the planned standoff **and** pad is still
+   misaligned after reseat. Skip FK pad gate when
+   `tip_track_err > contact_standoff_fk_track_tol_m` (12 mm) so unit
+   FakePlanners (planned Cartesian tip ≠ FK tip) still exercise recovery.
+2. **`run_ik_viz.py`** — early-abort after settle-reclassified PLAN_FAIL
+   (not only gated planning fails).
+3. **`run_headless_contact_iter.sh`** — `--early-abort-after-fails 1`.
+4. **`tests/test_plan_recovery.py`** — `_fake_ok_traj` helper (IK when
+   possible); contact MotionGen assert softened for axial-first path.
+5. **`tests/test_viz_plan_fail_closed.py`** — settle fail_reason contract
+   includes `no_contact` + EARLY_ABORT.
+
+**Review:** FK track skip must not weaken real MotionGen paths (tip should
+land within ~12 mm of planned standoff).
+
 ## Axial tip-omit lerp + long-GUI iteration (2026-07-17)
 
 **Enumerated changes**

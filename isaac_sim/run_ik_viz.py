@@ -1853,6 +1853,17 @@ def run_viz(args: argparse.Namespace) -> int:
                 )
                 break
 
+            # Fail-fast: also abort after settle-reclassified PLAN_FAIL
+            # (mid-path graze / invalid settle), not only gated planning fails.
+            early_n = int(getattr(args, "early_abort_after_fails", 3) or 0)
+            if early_n > 0 and n_plan_fail >= early_n:
+                _viz_log(
+                    f"  EARLY_ABORT: {n_plan_fail} PLAN_FAIL "
+                    f"(threshold={early_n}, ok={n_plan_ok}) — stopping viz loop.",
+                    level="error",
+                )
+                break
+
         metrics["phase2_plan_ok"] = n_plan_ok
         metrics["phase2_plan_fail"] = n_plan_fail
         metrics["phase2_marker_contact_green"] = n_contact_green

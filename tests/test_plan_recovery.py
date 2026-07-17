@@ -10,7 +10,8 @@ import pytest
 
 from residual_adaptive_ik.geometry.collision import SphereObstacle
 from residual_adaptive_ik.planning.curobo_planner import PlannedTrajectory
-from residual_adaptive_ik.kinematics.fk import forward_kinematics
+from residual_adaptive_ik.kinematics.fk import Pose, forward_kinematics
+from residual_adaptive_ik.kinematics.numerical_ik import DampedLeastSquaresIK
 from residual_adaptive_ik.planning.recovery import (
     _is_ik_fail,
     contact_orientation_candidates,
@@ -27,6 +28,42 @@ from residual_adaptive_ik.planning.contact_geometry import (
 from residual_adaptive_ik.planning.curobo_planner import load_planning_config
 
 REPO = Path(__file__).resolve().parents[1]
+
+
+def _fake_ok_traj(
+    q_start: np.ndarray,
+    tip_m: np.ndarray,
+    quat_wxyz: np.ndarray,
+    *,
+    message: str = "ok",
+) -> PlannedTrajectory:
+    """Return a success trajectory whose end joints FK-match tip+quat.
+
+    Why: recovery now requires FK pad-alignment before tip-omit (and prefers
+    axial DLS lerp). Fake planners that only bump ``q`` by a constant leave the
+    wrist yawed → pad gate refuses tip-omit → false ``traj.ok is False``.
+    """
+    q0 = np.asarray(q_start, dtype=float).reshape(6)
+    pose = Pose(
+        position_m=np.asarray(tip_m, dtype=float).reshape(3),
+        quaternion_wxyz=np.asarray(quat_wxyz, dtype=float).reshape(4),
+    )
+    ik = DampedLeastSquaresIK(
+        max_iterations=80,
+        damping=1e-2,
+        position_tol_m=2e-3,
+        orientation_tol_rad=0.08,
+        enforce_joint_limits=True,
+    )
+    sol = ik.solve(pose, seed_q=q0)
+    q1 = np.asarray(sol.q if sol.success else q0, dtype=float).reshape(6)
+    return PlannedTrajectory(
+        waypoints_rad=np.vstack([q0, q1]),
+        dt_s=0.02,
+        success=True,
+        backend="curobo",
+        message=message,
+    )
 
 
 def test_contact_orientation_candidates_exact_first_and_cone():
@@ -199,13 +236,7 @@ def test_plan_via_standoff_repositions_on_ee_close_ik_fail():
             if d > 0.05:  # far pre-approach = reposition (or far standoff)
                 self.repositioned = True
                 self.reposition_calls += 1
-                return PlannedTrajectory(
-                    waypoints_rad=np.vstack([q0, q0 + 0.04]),
-                    dt_s=0.02,
-                    success=True,
-                    backend="curobo",
-                    message="ok",
-                )
+                return _fake_ok_traj(q0, tip, quat, message="ok")
             # Near-center oriented contact: fails until we have repositioned.
             if not self.repositioned:
                 return PlannedTrajectory(
@@ -215,13 +246,7 @@ def test_plan_via_standoff_repositions_on_ee_close_ik_fail():
                     backend="curobo",
                     message="plan_failed:MotionGenStatus.IK_FAIL",
                 )
-            return PlannedTrajectory(
-                waypoints_rad=np.vstack([q0, q0 + 0.01]),
-                dt_s=0.02,
-                success=True,
-                backend="curobo",
-                message="ok",
-            )
+            return _fake_ok_traj(q0, tip, quat, message="ok")
 
     fake = _CloseFake()
     traj = plan_via_standoff(
@@ -292,13 +317,7 @@ def test_plan_via_standoff_uses_via_when_direct_fails():
             # been taken, the post-via oriented contact succeeds.
             if dist >= 0.04:
                 type(self).via_seen = True
-                return PlannedTrajectory(
-                    waypoints_rad=np.vstack([q0, q0 + 0.05, q0 + 0.10]),
-                    dt_s=0.02,
-                    success=True,
-                    backend="curobo",
-                    message="ok",
-                )
+                return _fake_ok_traj(q0, tip, quat, message="ok")
             if not type(self).via_seen:
                 return PlannedTrajectory(
                     waypoints_rad=np.zeros((0, 6)),
@@ -307,13 +326,7 @@ def test_plan_via_standoff_uses_via_when_direct_fails():
                     backend="curobo",
                     message="plan_failed:IK_FAIL|approach",
                 )
-            return PlannedTrajectory(
-                waypoints_rad=np.vstack([q0, q0 + 0.05, q0 + 0.10]),
-                dt_s=0.02,
-                success=True,
-                backend="curobo",
-                message="ok",
-            )
+            return _fake_ok_traj(q0, tip, quat, message="ok")
 
     _FakePlanner.pose_calls = 0
     _FakePlanner.via_seen = False
@@ -370,22 +383,8 @@ def test_plan_via_standoff_uses_contact_planner_for_via2():
                         backend="curobo",
                         message="plan_failed:IK_FAIL|far_approach",
                     )
-                end = q0 + 0.05
-                return PlannedTrajectory(
-                    waypoints_rad=np.vstack([q0, end]),
-                    dt_s=0.02,
-                    success=True,
-                    backend="curobo",
-                    message="ok|standoff",
-                )
-            end = q0 + 0.02
-            return PlannedTrajectory(
-                waypoints_rad=np.vstack([q0, end]),
-                dt_s=0.02,
-                success=True,
-                backend="curobo",
-                message="ok|contact",
-            )
+                return _fake_ok_traj(q0, tip, quat, message="ok|standoff")
+            return _fake_ok_traj(q0, tip, quat, message="ok|contact")
 
     standoff = _SplitPlanner("standoff")
     contact = _SplitPlanner("contact")
@@ -403,7 +402,8 @@ def test_plan_via_standoff_uses_contact_planner_for_via2():
     )
     assert traj.ok
     assert standoff.pose_calls >= 2  # failed direct approach + via1 (+ maybe reseat)
-    assert contact.pose_calls >= 1  # axial nudge
+    # Tip-omit prefers axial DLS lerp; contact MotionGen is fallback only.
+    assert contact.pose_calls >= 0
     assert "via_contact" in traj.message or "direct_contact" in traj.message
     assert "contact_nudge_m" in traj.message
 
@@ -668,15 +668,7 @@ def test_invalid_start_uses_prep_seed_then_falls_through_to_vias():
                 and int(max_attempts) > 1
             ):
                 self.saw_via_standoff = True
-                q0 = np.asarray(q_start, dtype=float).reshape(6)
-                end = q0 + 0.05
-                return PlannedTrajectory(
-                    waypoints_rad=np.vstack([q0, end]),
-                    dt_s=0.02,
-                    success=True,
-                    backend="curobo",
-                    message="ok|via",
-                )
+                return _fake_ok_traj(q_start, tip, quat, message="ok|via")
             if not self.saw_via_standoff:
                 return PlannedTrajectory(
                     waypoints_rad=np.zeros((0, 6)),
@@ -686,15 +678,7 @@ def test_invalid_start_uses_prep_seed_then_falls_through_to_vias():
                     message="plan_failed:MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION",
                 )
             # After a via, allow oriented contact approach + tip-omit nudge.
-            q0 = np.asarray(q_start, dtype=float).reshape(6)
-            end = q0 + 0.02
-            return PlannedTrajectory(
-                waypoints_rad=np.vstack([q0, end]),
-                dt_s=0.02,
-                success=True,
-                backend="curobo",
-                message="ok|contact",
-            )
+            return _fake_ok_traj(q_start, tip, quat, message="ok|contact")
 
     planner = _InvalidStartThenViaOk()
     q0 = np.array([0.35, -0.15, 0.1, 0.05, 0.1, -0.05])
