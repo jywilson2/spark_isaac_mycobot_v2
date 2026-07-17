@@ -21,8 +21,9 @@ standoff/nudge→8 mm; **kept** axial tip-omit lerp + tip-face/latch gates.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 1 | headless viz=16 abort=1 | **FAIL** 0/1 (inflate too tight) | revert inflate; retest |
-| 2 | (pending) | — | headless then GUI viz=48 |
+| 1 | headless viz=16 abort=1 | **FAIL** 0/1 (inflate too tight) | revert inflate |
+| 2 | headless viz=16 (abort only if ok=0) | **FAIL** 14/16 — Ep2 settle `no_contact` dist=14.3mm; Ep7 `axis_out=15°` | tighter axial IK + abort-on-any-fail |
+| 3 | (pending) | — | headless abort=1 then GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -879,6 +880,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:23 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:26 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

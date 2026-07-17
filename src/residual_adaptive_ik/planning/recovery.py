@@ -166,7 +166,15 @@ def plan_axial_tip_omit_lerp(
         position_m=np.asarray(pierce_position_m, dtype=float).reshape(3),
         quaternion_wxyz=np.asarray(quaternion_wxyz, dtype=float).reshape(4),
     )
-    ik = DampedLeastSquaresIK.from_config(model=model)
+    # Tight tip-omit IK: settle must land in the surface shell (outer_tol≈2 mm).
+    ik = DampedLeastSquaresIK(
+        max_iterations=120,
+        damping=1e-3,
+        position_tol_m=5e-4,
+        orientation_tol_rad=0.02,
+        enforce_joint_limits=True,
+        model=model,
+    )
     sol = ik.solve(pose_tgt, seed_q=q0)
     if not sol.success:
         return PlannedTrajectory(
@@ -177,6 +185,19 @@ def plan_axial_tip_omit_lerp(
             message=f"plan_failed:axial_ik|{sol.reason}",
         )
     q1 = _clamp_joints(np.asarray(sol.q, dtype=float).reshape(6))
+    # Verify FK tip is on the surface shell before accepting the lerp.
+    tip1 = np.asarray(
+        forward_kinematics(q1, model=model).position_m, dtype=float
+    ).reshape(3)
+    tip_err = float(np.linalg.norm(tip1 - pose_tgt.position_m))
+    if tip_err > 0.0025:
+        return PlannedTrajectory(
+            waypoints_rad=np.zeros((0, 6)),
+            dt_s=float(dt_s),
+            success=False,
+            backend="axial_lerp",
+            message=f"plan_failed:axial_ik_tip_err_m={tip_err:.4f}",
+        )
     wp = interpolate_joint_path(q0, q1, n_samples=max(2, int(n_samples)))
     return PlannedTrajectory(
         waypoints_rad=wp,

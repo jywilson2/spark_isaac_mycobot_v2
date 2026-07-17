@@ -294,9 +294,9 @@ def parse_args() -> argparse.Namespace:
         "--early-abort-after-fails",
         type=int,
         default=3,
-        help="Stop the viz trial loop early when PLAN_OK is still 0 after this "
-        "many PLAN_FAIL episodes (default 3). Speeds debugging when contact IK "
-        "is systematically broken. Set 0 to disable.",
+        help="Stop the viz trial loop after this many PLAN_FAIL episodes "
+        "(default 3), regardless of PLAN_OK count. Use 1 for fail-fast "
+        "iteration. Set 0 to disable.",
     )
     return parser.parse_args()
 
@@ -1393,16 +1393,11 @@ def run_viz(args: argparse.Namespace) -> int:
                 # Early abort: no greens after N consecutive fails — contact
                 # stack is systematically broken; do not burn ~90s/episode.
                 early_n = int(getattr(args, "early_abort_after_fails", 3) or 0)
-                if (
-                    early_n > 0
-                    and n_plan_ok == 0
-                    and n_plan_fail >= early_n
-                ):
+                if early_n > 0 and n_plan_fail >= early_n:
                     _viz_log(
-                        f"  EARLY_ABORT: 0 PLAN_OK after {n_plan_fail} PLAN_FAIL "
-                        f"(threshold={early_n}) — stopping viz loop. Likely tip-face "
-                        "oriented contact IK is systematically failing "
-                        "(see STATUS.md / tip-face gate history).",
+                        f"  EARLY_ABORT: {n_plan_fail} PLAN_FAIL "
+                        f"(threshold={early_n}, ok={n_plan_ok}) — stopping viz "
+                        "loop for faster iteration (spec: abort on failure).",
                         level="error",
                     )
                     break
@@ -1546,7 +1541,13 @@ def run_viz(args: argparse.Namespace) -> int:
                     if not fok:
                         final_ok = False
                         fail_reason_tag = (
-                            "immersed" if freason == "immersed" else "invalid_side"
+                            "immersed"
+                            if freason == "immersed"
+                            else (
+                                "no_contact"
+                                if freason == "no_contact"
+                                else "invalid_side"
+                            )
                         )
                         n_invalid_side += 1
                         _set_target_marker_color(
@@ -1779,6 +1780,7 @@ def run_viz(args: argparse.Namespace) -> int:
                     "invalid_side",
                     "immersed",
                     "arm_body_contact",
+                    "no_contact",
                 ):
                     _viz_log(
                         f"{episode} RESULT PLAN_FAIL({fail_reason_tag}) | {_tally()}",
