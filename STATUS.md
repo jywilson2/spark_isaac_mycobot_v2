@@ -95,9 +95,12 @@ then runtime `SIDE_GRAZE` lat=10.9 mm (sparse shell samples missed the chord).
 reseat (axis 0.262>0.260), mid-path WRONG_SIDE then green; CONTACT_HOLD IK
 blew tip off the shell.
 
-**Iter19 change:** refuse tip-omit when reseat leaves pad misaligned (→ vias);
-CONTACT_HOLD rejects IK solutions whose tip is >5 mm from pierce and restores
-``q_at_contact``.
+**Iter19 smoke:** headless viz=16 abort=1 → **FAIL** `ok=6 fail=1` — Ep7
+via green at 13.4 mm then tip continued to **72.8 mm**; SETTLE_RESTORE could
+not recover (settle 74.4 mm + EE side sphere). Refuse-after-reseat worked.
+
+**Iter20 change:** stop joint playback on first tip-face green
+(``stop_motion`` / ``should_stop`` on ``_follow_trajectory``).
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
@@ -105,7 +108,8 @@ CONTACT_HOLD rejects IK solutions whose tip is >5 mm from pierce and restores
 | 16 | headless viz=16 abort=1 | **FAIL** 9/10 — Ep10 DLS side_graze | tip-face gate on DLS |
 | 17 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 DLS chord miss | densify+corridor |
 | 18 | headless viz=16 abort=1 | **FAIL** 2/3 — Ep3 tip-omit pad_ok=0 | refuse+hold tip check |
-| 19 | headless (pending) | — | then long GUI viz=48 |
+| 19 | headless viz=16 abort=1 | **FAIL** 6/7 — Ep7 post-green drift 72 mm | stop on green |
+| 20 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -1064,6 +1068,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:43 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:51 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

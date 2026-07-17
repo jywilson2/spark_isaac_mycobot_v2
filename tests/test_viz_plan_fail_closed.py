@@ -246,6 +246,8 @@ def test_viz_settle_side_back_immerse_become_plan_fail():
     assert "_sequential_retract_tip_from_marker" in src
     assert "q_at_contact" in src
     assert "SETTLE_RESTORE" in src
+    assert "should_stop" in src
+    assert "stop_motion" in src
 
 
 def test_viz_defers_marker_until_plan_outcome():

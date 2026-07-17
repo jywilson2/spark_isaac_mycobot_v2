@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter20: Stop trajectory playback on first tip-face green (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — ``contact_diag["stop_motion"]`` on MARKER_CONTACT;
+   ``_follow_trajectory`` / ``_move_joints_at_hardware_speed`` take
+   ``should_stop`` and abort remaining waypoints (iter19 Ep7: green → 72 mm).
+
 ## Iter19: Refuse tip-omit when reseat pad stays misaligned (2026-07-17)
 
 **Enumerated changes**

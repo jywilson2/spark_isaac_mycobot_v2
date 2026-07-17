@@ -527,11 +527,13 @@ def _move_joints_at_hardware_speed(
     max_speed_rad_s: float,
     dt_s: float = 1.0 / 60.0,
     on_step: Callable[[np.ndarray], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """Interpolate joint motion capped at vendor max joint speed (rad/s).
 
     Matches Elephant Robotics myCobot 280 ``Joint Maximum Speed`` (160 °/s).
     Optional ``on_step(q_rad)`` runs after each joint update (e.g. contact color).
+    Optional ``should_stop()`` aborts remaining interpolation (e.g. tip-face green).
     """
     q_goal = np.asarray(q_goal_rad, dtype=float).reshape(-1)
     try:
@@ -551,6 +553,8 @@ def _move_joints_at_hardware_speed(
     speed = max(1e-6, float(max_speed_rad_s))
     step_limit = speed * max(1e-4, float(dt_s))
     while simulation_app.is_running():
+        if should_stop is not None and should_stop():
+            return
         err = q_goal - q
         max_err = float(np.max(np.abs(err)))
         if max_err < 1e-4:
@@ -561,6 +565,8 @@ def _move_joints_at_hardware_speed(
         if on_step is not None:
             on_step(q)
         simulation_app.update()
+    if should_stop is not None and should_stop():
+        return
     _set_joint_positions(articulation, q_goal)
     if on_step is not None:
         on_step(q_goal)
@@ -574,11 +580,13 @@ def _follow_trajectory(
     dt_s: float,
     max_speed_rad_s: float,
     on_step: Callable[[np.ndarray], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """Play back a joint trajectory, still respecting vendor max joint speed.
 
     If consecutive waypoints imply speeds above ``max_speed_rad_s``, intermediate
-    lerp samples are inserted (radians / seconds).
+    lerp samples are inserted (radians / seconds). Stops early when
+    ``should_stop()`` is true (iter19 Ep7: green then tip drifted to 72 mm).
     """
     wps = np.asarray(waypoints_rad, dtype=float)
     if wps.ndim != 2 or wps.shape[0] == 0:
@@ -588,12 +596,16 @@ def _follow_trajectory(
     for i in range(wps.shape[0]):
         if not simulation_app.is_running():
             break
+        if should_stop is not None and should_stop():
+            break
         q_goal = wps[i]
         try:
             q = _get_joint_positions(articulation)
         except Exception:
             q = q_goal.copy()
         while simulation_app.is_running():
+            if should_stop is not None and should_stop():
+                return
             err = q_goal - q
             max_err = float(np.max(np.abs(err)))
             if max_err < 1e-4:
@@ -604,6 +616,8 @@ def _follow_trajectory(
             if on_step is not None:
                 on_step(q)
             simulation_app.update()
+        if should_stop is not None and should_stop():
+            return
         _set_joint_positions(articulation, q_goal)
         if on_step is not None:
             on_step(q_goal)
@@ -1102,6 +1116,7 @@ def run_viz(args: argparse.Namespace) -> int:
                 "mid_path_reject_metrics": None,
                 "green_after_graze": False,
                 "q_at_contact": None,
+                "stop_motion": False,
             }
             # Detect the "EE already close to target" regime up front. When the
             # tip starts within a short shell of the surface, the oriented
@@ -1223,6 +1238,9 @@ def run_viz(args: argparse.Namespace) -> int:
                         ).reshape(6).copy()
                     except Exception:
                         contact_diag["q_at_contact"] = None
+                    # Freeze remaining trajectory — continuing after green let
+                    # tip drift to 72 mm (iter19 Ep7) while settle tried restore.
+                    contact_diag["stop_motion"] = True
                     _set_target_marker_color(stage, state=MarkerVisualState.CONTACT)
                     _viz_log(
                         "  MARKER_CONTACT: tip-face center on sphere surface → green "
@@ -1363,6 +1381,7 @@ def run_viz(args: argparse.Namespace) -> int:
                     dt_s=float(dt_s),
                     max_speed_rad_s=max_speed,
                     on_step=_on_step,
+                    should_stop=lambda: bool(contact_diag.get("stop_motion")),
                 )
 
             def _decision_emit(line: str) -> None:
@@ -1554,11 +1573,18 @@ def run_viz(args: argparse.Namespace) -> int:
                     dt_s=traj.dt_s,
                     max_speed_rad_s=max_speed,
                     on_step=_on_step,
+                    should_stop=lambda: bool(contact_diag.get("stop_motion")),
                 )
             elif "already_executed" in str(traj.message):
                 # Nudge one servo step so contact/hold still samples FK.
+                # If green already latched mid-exec, snap to that pose first.
                 try:
-                    q_hold = _get_joint_positions(articulation)
+                    q_green = contact_diag.get("q_at_contact")
+                    if q_green is not None and contact_diag.get("stop_motion"):
+                        _set_joint_positions(articulation, q_green)
+                        q_hold = np.asarray(q_green, dtype=float).reshape(6)
+                    else:
+                        q_hold = _get_joint_positions(articulation)
                     _set_joint_positions(articulation, q_hold)
                     _on_step(q_hold)
                 except Exception:
