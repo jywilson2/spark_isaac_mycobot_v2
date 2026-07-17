@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter13: Reject tip-face side_graze on approach path (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — sample approach waypoints in the surface shell with
+   `classify_tip_contact`; reject side_graze / through / immersed / clear
+   wrong_side before accepting MotionGen approach.
+
 ## Iter12: Reject approaches with proximal arm ∩ marker (2026-07-17)
 
 **Enumerated changes**

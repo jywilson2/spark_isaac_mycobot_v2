@@ -990,6 +990,79 @@ def try_oriented_tip_face_contact(
                                     message="plan_failed:arm_body_on_approach",
                                 )
                                 break
+                    if leg_ap.ok:
+                        # Reject tip-face side_graze / through / clear wrong_side
+                        # samples along the approach (iter12 Ep8 lat=11 mm,
+                        # axis_out=76° mid-path SIDE_GRAZE).
+                        try:
+                            from isaac_sim.target_marker import (
+                                classify_tip_contact,
+                            )
+                        except Exception:
+                            classify_tip_contact = None  # type: ignore
+                        if classify_tip_contact is not None:
+                            standoff_ref = np.asarray(
+                                approach.standoff_position_m, dtype=float
+                            ).reshape(3)
+                            stride_tf = max(1, wp_chk.shape[0] // 24)
+                            for q_tf in wp_chk[::stride_tf]:
+                                pose_tf = forward_kinematics(q_tf, model=mdl)
+                                tip_tf = np.asarray(
+                                    pose_tf.position_m, dtype=float
+                                ).reshape(3)
+                                d_tf = float(
+                                    np.linalg.norm(tip_tf - sphere_center_m)
+                                )
+                                if d_tf > sphere_radius_m + 0.008:
+                                    continue
+                                fok, freason, fm = classify_tip_contact(
+                                    tip_tf,
+                                    sphere_center_m,
+                                    approach_from_m=standoff_ref,
+                                    ee_quaternion_wxyz=pose_tf.quaternion_wxyz,
+                                )
+                                bad = freason in (
+                                    "side_graze",
+                                    "through",
+                                    "immersed",
+                                )
+                                if freason == "wrong_side_axis":
+                                    ax = float(
+                                        fm.get("axis_out_err_rad", 0.0)
+                                    )
+                                    bad = ax > max(
+                                        0.50,
+                                        2.0
+                                        * float(
+                                            cfg.get(
+                                                "contact_axis_tolerance_rad",
+                                                0.26,
+                                            )
+                                        ),
+                                    )
+                                if bad:
+                                    log.append(
+                                        f"contact_approach_q{qi}:tip_face_path|"
+                                        f"reason={freason}"
+                                    )
+                                    _decision(
+                                        decision_emit,
+                                        log,
+                                        f"approach_reject_tip_face q{qi} "
+                                        f"reason={freason}",
+                                    )
+                                    leg_ap = PlannedTrajectory(
+                                        waypoints_rad=np.zeros((0, 6)),
+                                        dt_s=last_dt,
+                                        success=False,
+                                        backend=getattr(
+                                            leg_ap, "backend", "curobo"
+                                        ),
+                                        message=(
+                                            f"plan_failed:tip_face_{freason}"
+                                        ),
+                                    )
+                                    break
                 if leg_ap.ok:
                     quat = np.asarray(quat_try, dtype=float).reshape(4)
                     chosen_quat = quat.copy()

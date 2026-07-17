@@ -59,13 +59,17 @@ Honest latch.
 `PLAN_FAIL(arm_body_contact)` (proximal link ∩ marker). Tip immersion reject
 helped past Ep5-style through paths.
 
-**Iter12 change:** reject MotionGen approaches whose proximal arm capsules
-intersect the marker mid-path (same monitor as settle `arm_body_contact`).
+**Iter12 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — Ep8
+mid-path SIDE_GRAZE lat=11 mm axis_out=76° (honest); settle no_contact 15 mm.
+
+**Iter13 change:** reject MotionGen approaches with mid-path tip-face
+`side_graze` / `through` / clear `wrong_side` when tip is in the surface shell.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 11 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 arm_body_contact | reject arm-body approaches |
-| 12 | headless (pending) | — | then long GUI viz=48 |
+| 11 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 arm_body | arm-body approach reject |
+| 12 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 side_graze | tip-face path reject |
+| 13 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -982,6 +986,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:51 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:52 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 
