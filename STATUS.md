@@ -115,15 +115,18 @@ looping with curobo tip-omit fail.
 green lat=0.4 mm then settle ``side_graze`` lat=5.4 mm (stale ``approach_from``
 from far via tip). Axial tip-omit relax helped (got past Ep4).
 
-**Iter24 change:** latch ``approach_from_at_contact`` on green (tip + 20 mm
-outward) for settle classify.
+**Iter24 smoke:** headless viz=16 abort=1 → **FAIL** skip gate — **contact
+path clean**: `ok=11 fail=0 rate=1.000` but `skip_unreachable=24/40`
+(`skip_frac=0.600 > 0.250`); only filled 11/16 episodes (pool exhausted).
+
+**Iter25 change:** raise smoke pose pool (`ISAAC_VIZ_SMOKE_N_POSES=120`) so
+visualize=16 can fill without tripping skip gate; then long GUI viz=48.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 21 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 timeout pad≈tol | reseat near-tol |
-| 22 | headless viz=16 abort=1 | **FAIL** 3/4 — Ep4 axial IK 0.02 | relax axial IK |
 | 23 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 stale approach_from | latch on green |
-| 24 | headless (pending) | — | then long GUI viz=48 |
+| 24 | headless viz=16 abort=1 | **FAIL** skip 0.60 (contact 11/11 ok) | more poses |
+| 25 | headless (pending) | — | then long GUI viz=48 |
 
 
 ## Spec freeze — contact failures (2026-07-17)

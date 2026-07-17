@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter25: Larger pose pool for skip-unreachable gate (2026-07-17)
+
+**Enumerated changes**
+
+1. Headless / GUI iteration smokes use ``ISAAC_VIZ_SMOKE_N_POSES=120`` so
+   ``visualize=16`` (and later 48) can fill countable episodes without
+   ``skip_frac > 0.25`` after contact path is rate=1.0 (iter24).
+
 ## Iter24: Latch approach_from on tip-face green for settle (2026-07-17)
 
 **Enumerated changes**
