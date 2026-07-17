@@ -249,6 +249,65 @@ def tip_path_avoids_marker_immersion(
     return True, float(min_d if np.isfinite(min_d) else float("nan"))
 
 
+def tip_path_tip_face_ok(
+    waypoints_rad: np.ndarray,
+    *,
+    sphere_center_m: np.ndarray,
+    sphere_radius_m: float,
+    approach_from_m: np.ndarray,
+    model: UrdfKinematicModel,
+    cfg: dict,
+    stride: int = 1,
+) -> tuple[bool, str]:
+    """Return ``(ok, reason)`` — reject shell samples that are side/through/flipped.
+
+    Imports ``classify_tip_contact`` via repo root (``isaac_sim`` is outside the
+    residual package path).
+    """
+    classify_tip_contact = None
+    try:
+        import sys
+        from pathlib import Path
+
+        _repo = Path(__file__).resolve().parents[3]
+        if str(_repo) not in sys.path:
+            sys.path.insert(0, str(_repo))
+        from isaac_sim.target_marker import classify_tip_contact as _ctc
+
+        classify_tip_contact = _ctc
+    except Exception:
+        return True, "classify_unavailable"
+    wp = np.asarray(waypoints_rad, dtype=float)
+    if wp.ndim != 2 or wp.shape[0] == 0:
+        return False, "empty_path"
+    center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+    standoff_ref = np.asarray(approach_from_m, dtype=float).reshape(3)
+    step = max(1, int(stride))
+    latch_axis = max(
+        0.50,
+        2.0 * float(cfg.get("contact_axis_tolerance_rad", 0.26)),
+    )
+    for q_tf in wp[::step]:
+        pose_tf = forward_kinematics(q_tf, model=model)
+        tip_tf = np.asarray(pose_tf.position_m, dtype=float).reshape(3)
+        d_tf = float(np.linalg.norm(tip_tf - center))
+        if d_tf > float(sphere_radius_m) + 0.008:
+            continue
+        _fok, freason, fm = classify_tip_contact(
+            tip_tf,
+            center,
+            approach_from_m=standoff_ref,
+            ee_quaternion_wxyz=pose_tf.quaternion_wxyz,
+        )
+        bad = freason in ("side_graze", "through", "immersed")
+        if freason == "wrong_side_axis":
+            ax = float(fm.get("axis_out_err_rad", 0.0))
+            bad = ax > latch_axis
+        if bad:
+            return False, str(freason)
+    return True, "ok"
+
+
 def plan_dls_standoff_approach_lerp(
     q_start_rad: np.ndarray,
     standoff_position_m: np.ndarray,
@@ -992,89 +1051,37 @@ def try_oriented_tip_face_contact(
                                 break
                     if leg_ap.ok:
                         # Reject tip-face side_graze / through / clear wrong_side
-                        # samples along the approach (iter12 Ep8 lat=11 mm,
-                        # axis_out=76° mid-path SIDE_GRAZE).
-                        # Import via repo root — ``isaac_sim`` is not on the
-                        # residual package path (silent skip caused iter13 Ep7
-                        # axis_out=128° to reach execution).
-                        classify_tip_contact = None
-                        try:
-                            import sys
-                            from pathlib import Path
-
-                            _repo = Path(__file__).resolve().parents[3]
-                            if str(_repo) not in sys.path:
-                                sys.path.insert(0, str(_repo))
-                            from isaac_sim.target_marker import (  # noqa: WPS433
-                                classify_tip_contact as _ctc,
+                        # samples along the approach (iter12 Ep8 lat=11 mm).
+                        standoff_ref = np.asarray(
+                            approach.standoff_position_m, dtype=float
+                        ).reshape(3)
+                        tf_ok, tf_reason = tip_path_tip_face_ok(
+                            wp_chk,
+                            sphere_center_m=sphere_center_m,
+                            sphere_radius_m=sphere_radius_m,
+                            approach_from_m=standoff_ref,
+                            model=mdl,
+                            cfg=cfg,
+                            stride=max(1, wp_chk.shape[0] // 24),
+                        )
+                        if not tf_ok:
+                            log.append(
+                                f"contact_approach_q{qi}:tip_face_path|"
+                                f"reason={tf_reason}"
                             )
-
-                            classify_tip_contact = _ctc
-                        except Exception:
-                            classify_tip_contact = None
-                        if classify_tip_contact is not None:
-                            standoff_ref = np.asarray(
-                                approach.standoff_position_m, dtype=float
-                            ).reshape(3)
-                            stride_tf = max(1, wp_chk.shape[0] // 24)
-                            for q_tf in wp_chk[::stride_tf]:
-                                pose_tf = forward_kinematics(q_tf, model=mdl)
-                                tip_tf = np.asarray(
-                                    pose_tf.position_m, dtype=float
-                                ).reshape(3)
-                                d_tf = float(
-                                    np.linalg.norm(tip_tf - sphere_center_m)
-                                )
-                                if d_tf > sphere_radius_m + 0.008:
-                                    continue
-                                _fok, freason, fm = classify_tip_contact(
-                                    tip_tf,
-                                    sphere_center_m,
-                                    approach_from_m=standoff_ref,
-                                    ee_quaternion_wxyz=pose_tf.quaternion_wxyz,
-                                )
-                                bad = freason in (
-                                    "side_graze",
-                                    "through",
-                                    "immersed",
-                                )
-                                if freason == "wrong_side_axis":
-                                    ax = float(
-                                        fm.get("axis_out_err_rad", 0.0)
-                                    )
-                                    bad = ax > max(
-                                        0.50,
-                                        2.0
-                                        * float(
-                                            cfg.get(
-                                                "contact_axis_tolerance_rad",
-                                                0.26,
-                                            )
-                                        ),
-                                    )
-                                if bad:
-                                    log.append(
-                                        f"contact_approach_q{qi}:tip_face_path|"
-                                        f"reason={freason}"
-                                    )
-                                    _decision(
-                                        decision_emit,
-                                        log,
-                                        f"approach_reject_tip_face q{qi} "
-                                        f"reason={freason}",
-                                    )
-                                    leg_ap = PlannedTrajectory(
-                                        waypoints_rad=np.zeros((0, 6)),
-                                        dt_s=last_dt,
-                                        success=False,
-                                        backend=getattr(
-                                            leg_ap, "backend", "curobo"
-                                        ),
-                                        message=(
-                                            f"plan_failed:tip_face_{freason}"
-                                        ),
-                                    )
-                                    break
+                            _decision(
+                                decision_emit,
+                                log,
+                                f"approach_reject_tip_face q{qi} "
+                                f"reason={tf_reason}",
+                            )
+                            leg_ap = PlannedTrajectory(
+                                waypoints_rad=np.zeros((0, 6)),
+                                dt_s=last_dt,
+                                success=False,
+                                backend=getattr(leg_ap, "backend", "curobo"),
+                                message=f"plan_failed:tip_face_{tf_reason}",
+                            )
                 if leg_ap.ok:
                     quat = np.asarray(quat_try, dtype=float).reshape(4)
                     chosen_quat = quat.copy()
@@ -1452,6 +1459,27 @@ def try_oriented_tip_face_contact(
     )
     last_dt = float(leg_nudge.dt_s)
     if not leg_nudge.ok:
+        return None
+    # Tip-omit segment must not side-graze mid-lerp (iter14 Ep8 lat=6 mm).
+    wp_nudge_chk = np.asarray(leg_nudge.waypoints_rad, dtype=float)
+    tf_ok, tf_reason = tip_path_tip_face_ok(
+        wp_nudge_chk,
+        sphere_center_m=sphere_center_m,
+        sphere_radius_m=sphere_radius_m,
+        approach_from_m=np.asarray(
+            approach.standoff_position_m, dtype=float
+        ).reshape(3),
+        model=mdl,
+        cfg=cfg,
+        stride=max(1, wp_nudge_chk.shape[0] // 8),
+    )
+    if not tf_ok:
+        log.append(f"contact_nudge_refused:tip_face_path|reason={tf_reason}")
+        _decision(
+            decision_emit,
+            log,
+            f"tip_omit_reject_tip_face reason={tf_reason}",
+        )
         return None
 
     tip_end = approach.pierce_position_m
