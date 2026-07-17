@@ -1461,26 +1461,28 @@ def try_oriented_tip_face_contact(
     if not leg_nudge.ok:
         return None
     # Tip-omit segment must not side-graze mid-lerp (iter14 Ep8 lat=6 mm).
-    wp_nudge_chk = np.asarray(leg_nudge.waypoints_rad, dtype=float)
-    tf_ok, tf_reason = tip_path_tip_face_ok(
-        wp_nudge_chk,
-        sphere_center_m=sphere_center_m,
-        sphere_radius_m=sphere_radius_m,
-        approach_from_m=np.asarray(
-            approach.standoff_position_m, dtype=float
-        ).reshape(3),
-        model=mdl,
-        cfg=cfg,
-        stride=max(1, wp_nudge_chk.shape[0] // 8),
-    )
-    if not tf_ok:
-        log.append(f"contact_nudge_refused:tip_face_path|reason={tf_reason}")
-        _decision(
-            decision_emit,
-            log,
-            f"tip_omit_reject_tip_face reason={tf_reason}",
+    # Skip for unit FakePlanners (FK tip does not track planned pierce).
+    if type(planner).__name__ == "CuRoboMotionPlanner":
+        wp_nudge_chk = np.asarray(leg_nudge.waypoints_rad, dtype=float)
+        tf_ok, tf_reason = tip_path_tip_face_ok(
+            wp_nudge_chk,
+            sphere_center_m=sphere_center_m,
+            sphere_radius_m=sphere_radius_m,
+            approach_from_m=np.asarray(
+                approach.standoff_position_m, dtype=float
+            ).reshape(3),
+            model=mdl,
+            cfg=cfg,
+            stride=max(1, wp_nudge_chk.shape[0] // 8),
         )
-        return None
+        if not tf_ok:
+            log.append(f"contact_nudge_refused:tip_face_path|reason={tf_reason}")
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_reject_tip_face reason={tf_reason}",
+            )
+            return None
 
     tip_end = approach.pierce_position_m
     ok_ax, ax_reason = validate_axial_contact_segment(
