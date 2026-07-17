@@ -1,5 +1,15 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter16: Restore q_at_contact when settle tip drifts to standoff (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — latch ``q_at_contact`` on first MARKER_CONTACT green;
+   ``SETTLE_RESTORE`` that pose when tip is outside the surface shell at hold
+   start (snap joints immediately; skip CONTACT_HOLD after restore so Ep8
+   cannot re-drift to standoff); CONTACT_HOLD position-relaxed IK (ori tol
+   0.35) then restore green pose if IK still fails.
+
 ## Iter14: Fix isaac_sim import for tip-face path reject (2026-07-17)
 
 **Enumerated changes**

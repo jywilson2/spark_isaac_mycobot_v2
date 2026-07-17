@@ -1101,6 +1101,7 @@ def run_viz(args: argparse.Namespace) -> int:
                 "mid_path_side_or_back": False,
                 "mid_path_reject_metrics": None,
                 "green_after_graze": False,
+                "q_at_contact": None,
             }
             # Detect the "EE already close to target" regime up front. When the
             # tip starts within a short shell of the surface, the oriented
@@ -1213,6 +1214,15 @@ def run_viz(args: argparse.Namespace) -> int:
                     )
                     # #endregion
                     contacted = True
+                    # Latch joints at first honest tip-face green. Later freeze /
+                    # settle often sees tip back at standoff (20 mm) after tip-omit
+                    # or PD drift (iter15 Ep8: green 13.5 mm → settle 20.4 mm).
+                    try:
+                        contact_diag["q_at_contact"] = np.asarray(
+                            q_rad, dtype=float
+                        ).reshape(6).copy()
+                    except Exception:
+                        contact_diag["q_at_contact"] = None
                     _set_target_marker_color(stage, state=MarkerVisualState.CONTACT)
                     _viz_log(
                         "  MARKER_CONTACT: tip-face center on sphere surface → green "
@@ -1553,17 +1563,43 @@ def run_viz(args: argparse.Namespace) -> int:
                     _on_step(q_hold)
                 except Exception:
                     pass
-            # Freeze joints through the settle hold. Previously we stopped
-            # commanding once ``contacted`` latched, and Isaac PD / physics
-            # drifted the tip back out to ~standoff (Ep2 iter5: green at
-            # 13.4 mm → settle no_contact at 18.7 mm).
+            # Freeze joints through the settle hold. Prefer the first green
+            # contact pose when the tip has already drifted back toward standoff
+            # (iter15 Ep8: green 13.5 mm → freeze would otherwise capture 20.4 mm).
             q_freeze = None
+            restored_green = False
             try:
-                q_freeze = np.asarray(
+                q_now_hold = np.asarray(
                     _get_joint_positions(articulation), dtype=float
                 ).reshape(6).copy()
+                tip_now_hold = np.asarray(
+                    forward_kinematics(q_now_hold).position_m, dtype=float
+                ).reshape(3)
+                d_hold = float(np.linalg.norm(tip_now_hold - target_xyz))
+                shell_max = (
+                    float(TARGET_MARKER_CONTACT_DISTANCE_M)
+                    + float(TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M)
+                )
+                q_green = contact_diag.get("q_at_contact")
+                if (
+                    q_green is not None
+                    and d_hold > shell_max
+                    and np.asarray(q_green).shape == (6,)
+                ):
+                    q_freeze = np.asarray(q_green, dtype=float).reshape(6).copy()
+                    restored_green = True
+                    _set_joint_positions(articulation, q_freeze)
+                    _on_step(q_freeze)
+                    _viz_log(
+                        "  SETTLE_RESTORE: tip at "
+                        f"{d_hold * 1e3:.1f}mm (>shell {shell_max * 1e3:.1f}mm); "
+                        "restoring q_at_contact from first green"
+                    )
+                else:
+                    q_freeze = q_now_hold
             except Exception:
                 q_freeze = None
+                restored_green = False
             t_end = time.monotonic() + max(0.05, float(hold_s))
             while time.monotonic() < t_end and simulation_app.is_running():
                 try:
@@ -1582,6 +1618,8 @@ def run_viz(args: argparse.Namespace) -> int:
             # 13.6 mm then settle 14.0 mm (just past outer_tol) with nan axes.
             # Also refine when tip is in-shell but pad axis is past the tip-face
             # tol (iter7: dist OK after refine but axis_out≈37° with quat_now).
+            # Skip refine after SETTLE_RESTORE — green pose already validated
+            # mid-path; CONTACT_HOLD from standoff caused iter15 Ep8 no_contact.
             def _needs_contact_hold_refine() -> bool:
                 try:
                     q_chk = _get_joint_positions(articulation)
@@ -1603,7 +1641,9 @@ def run_viz(args: argparse.Namespace) -> int:
                 except Exception:
                     return not contacted
 
-            if (not contacted) or _needs_contact_hold_refine():
+            if (not restored_green) and (
+                (not contacted) or _needs_contact_hold_refine()
+            ):
                 # Short axial refine toward the pierce point (surface), not the
                 # marker center. Keeps tip-face contact without reintroducing
                 # side/flange immersion from a center-drive to trial.q_sol.
@@ -1657,7 +1697,30 @@ def run_viz(args: argparse.Namespace) -> int:
                         Pose(position_m=pierce, quaternion_wxyz=quat_goal),
                         seed_q=q_now,
                     )
-                    if bool(getattr(res, "success", False)):
+                    hold_ok = bool(getattr(res, "success", False))
+                    if not hold_ok:
+                        # Position-first fallback (iter15 Ep8: pad-facing IK
+                        # failed at tip_to_pierce=8.4 mm from standoff).
+                        ik_pos = DampedLeastSquaresIK(
+                            max_iterations=160,
+                            damping=5e-3,
+                            position_tol_m=1.5e-3,
+                            orientation_tol_rad=0.35,
+                        )
+                        res = ik_pos.solve(
+                            Pose(
+                                position_m=pierce,
+                                quaternion_wxyz=quat_goal,
+                            ),
+                            seed_q=q_now,
+                        )
+                        hold_ok = bool(getattr(res, "success", False))
+                        if hold_ok:
+                            _viz_log(
+                                "  CONTACT_HOLD: position-relaxed IK ok "
+                                "(orientation_tol=0.35 rad)"
+                            )
+                    if hold_ok:
                         _move_joints_at_hardware_speed(
                             articulation,
                             res.q,
@@ -1666,16 +1729,31 @@ def run_viz(args: argparse.Namespace) -> int:
                             on_step=_on_step,
                         )
                         q_freeze = np.asarray(res.q, dtype=float).reshape(6).copy()
-                        # Re-anchor approach ray on the oriented standoff for
-                        # settle classify (tip-face gate).
                         approach_from_m = np.asarray(
                             ca_hold.standoff_position_m, dtype=float
                         ).reshape(3).copy()
                     else:
-                        _viz_log(
-                            "  CONTACT_HOLD: axial IK did not converge "
-                            f"({getattr(res, 'reason', 'unknown')})"
-                        )
+                        q_green = contact_diag.get("q_at_contact")
+                        if q_green is not None:
+                            _viz_log(
+                                "  CONTACT_HOLD: IK fail — restoring q_at_contact",
+                                level="warn",
+                            )
+                            _move_joints_at_hardware_speed(
+                                articulation,
+                                q_green,
+                                simulation_app,
+                                max_speed_rad_s=max_speed,
+                                on_step=_on_step,
+                            )
+                            q_freeze = np.asarray(
+                                q_green, dtype=float
+                            ).reshape(6).copy()
+                        else:
+                            _viz_log(
+                                "  CONTACT_HOLD: axial IK did not converge "
+                                f"({getattr(res, 'reason', 'unknown')})"
+                            )
                 except Exception as exc:  # noqa: BLE001
                     _viz_log(f"  CONTACT_HOLD: axial IK skipped ({exc})")
                 t_nudge = time.monotonic() + max(0.15, float(hold_s))

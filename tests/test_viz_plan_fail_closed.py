@@ -244,6 +244,8 @@ def test_viz_settle_side_back_immerse_become_plan_fail():
     assert "_set_joint_positions(articulation, q_freeze)" in src
     assert "SEQUENTIAL_RETRACT" in src
     assert "_sequential_retract_tip_from_marker" in src
+    assert "q_at_contact" in src
+    assert "SETTLE_RESTORE" in src
 
 
 def test_viz_defers_marker_until_plan_outcome():

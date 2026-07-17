@@ -71,13 +71,17 @@ mid-path SIDE_GRAZE lat=6 mm (tip-face R=4 mm). Likely on tip-omit segment
 (approach tip-face reject may not cover tip-omit waypoints).
 
 **Iter15 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — Ep8
-`PLAN_FAIL(no_contact)` (side_graze latch gone after tip-omit tip-face check;
-settle still short of shell).
+`PLAN_FAIL(no_contact)` settle dist=20.4 mm after green at 13.5 mm;
+CONTACT_HOLD IK failed at tip_to_pierce=8.4 mm.
 
-**Best headless so far:** 7/8 with early-abort. Long GUI viz=48 not started
-until headless fills 16/16 at rate 1.0.
+**Iter16 change:** latch ``q_at_contact`` on first green; ``SETTLE_RESTORE``
+when tip drifts outside shell; CONTACT_HOLD position-relaxed IK + restore
+green pose on IK fail.
 
-Monitor: [STATUS.md](STATUS.md) § Autonomous long-GUI iteration.
+| Iter | Smoke | Outcome | Next |
+|------|-------|---------|------|
+| 15 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 settle 20.4 mm | restore q_at_contact |
+| 16 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
