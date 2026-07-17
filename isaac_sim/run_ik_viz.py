@@ -448,6 +448,76 @@ def _get_joint_positions(articulation) -> np.ndarray:
     raise RuntimeError("Articulation has no get_joint_positions")
 
 
+def _sequential_retract_tip_from_marker(
+    articulation,
+    simulation_app,
+    target_xyz: np.ndarray,
+    *,
+    retract_m: float = 0.05,
+    max_speed_rad_s: float,
+) -> bool:
+    """Pull the tip outward along the surface normal after a contact episode.
+
+    Why
+    ---
+    Sequential multi-target smoke leaves the wrist on the previous marker with
+    a pad-facing (or near-pad) orientation for *that* sphere. The next target's
+    MotionGen approach then samples the tip on the new surface with a
+    flipped/back axis (``axis_out≈π``) → ``CONTACT_INVALID_MIDPATH_GRAZE``.
+    A short outward retract clears the shell before the next plan.
+    """
+    try:
+        from residual_adaptive_ik.kinematics.fk import Pose
+        from residual_adaptive_ik.kinematics.numerical_ik import DampedLeastSquaresIK
+
+        q_now = _get_joint_positions(articulation)
+        pose = forward_kinematics(q_now)
+        tip = np.asarray(pose.position_m, dtype=float).reshape(3)
+        tgt = np.asarray(target_xyz, dtype=float).reshape(3)
+        v = tip - tgt
+        n = float(np.linalg.norm(v))
+        if n < 1e-6:
+            return False
+        tip_goal = tip + (v / n) * max(0.01, float(retract_m))
+        ik = DampedLeastSquaresIK(
+            max_iterations=80,
+            damping=2e-3,
+            position_tol_m=2e-3,
+            orientation_tol_rad=0.08,
+        )
+        res = ik.solve(
+            Pose(position_m=tip_goal, quaternion_wxyz=pose.quaternion_wxyz),
+            seed_q=q_now,
+        )
+        if not bool(getattr(res, "success", False)):
+            _viz_log(
+                f"  SEQUENTIAL_RETRACT: IK fail ({getattr(res, 'reason', '?')})",
+                level="warn",
+            )
+            return False
+        _move_joints_at_hardware_speed(
+            articulation,
+            res.q,
+            simulation_app,
+            max_speed_rad_s=max_speed_rad_s,
+        )
+        tip_after = np.asarray(
+            forward_kinematics(
+                _get_joint_positions(articulation)
+            ).position_m,
+            dtype=float,
+        ).reshape(3)
+        _viz_log(
+            "  SEQUENTIAL_RETRACT: tip cleared marker "
+            f"(dist={float(np.linalg.norm(tip_after - tgt)) * 1e3:.1f}mm, "
+            f"retract_m={float(retract_m):.3f})"
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _viz_log(f"  SEQUENTIAL_RETRACT: skipped ({exc})", level="warn")
+        return False
+
+
 def _move_joints_at_hardware_speed(
     articulation,
     q_goal_rad: np.ndarray,
@@ -1845,6 +1915,17 @@ def run_viz(args: argparse.Namespace) -> int:
                     f"contact=green | {_tally()}",
                     level="warn" if used_via else "info",
                 )
+                # Sequential mode: clear the tip off this marker before the next
+                # episode so the following approach does not mid-path graze with
+                # a flipped wrist (CONTACT_INVALID_MIDPATH_GRAZE axis_out≈π).
+                if not reset_home:
+                    _sequential_retract_tip_from_marker(
+                        articulation,
+                        simulation_app,
+                        target_xyz,
+                        retract_m=0.05,
+                        max_speed_rad_s=max_speed,
+                    )
             else:
                 # Reclassify: PLAN_OK without a valid settled contact is a failure.
                 n_plan_ok -= 1

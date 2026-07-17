@@ -242,6 +242,8 @@ def test_viz_settle_side_back_immerse_become_plan_fail():
     # Settle hold must keep commanding joints (no post-contact drift).
     assert "q_freeze" in src
     assert "_set_joint_positions(articulation, q_freeze)" in src
+    assert "SEQUENTIAL_RETRACT" in src
+    assert "_sequential_retract_tip_from_marker" in src
 
 
 def test_viz_defers_marker_until_plan_outcome():

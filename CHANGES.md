@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter9: Sequential post-contact tip retract (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — `_sequential_retract_tip_from_marker`: after PLAN_OK
+   in sequential mode, DLS-move tip 50 mm along the outward normal so the
+   next episode does not mid-path graze with a flipped wrist on the new
+   marker (`CONTACT_INVALID_MIDPATH_GRAZE` axis_out≈π).
+
 ## Iter8: Pad-facing CONTACT_HOLD orientation (2026-07-17)
 
 **Enumerated changes**
