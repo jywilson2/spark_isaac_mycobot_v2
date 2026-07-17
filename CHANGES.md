@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter14: Fix isaac_sim import for tip-face path reject (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — prepend repo root to ``sys.path`` before importing
+   ``isaac_sim.target_marker.classify_tip_contact`` so approach tip-face
+   validation actually runs (was silently skipped).
+
 ## Iter13: Reject tip-face side_graze on approach path (2026-07-17)
 
 **Enumerated changes**
