@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter21: Skip CONTACT_HOLD after stop-on-green (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — skip CONTACT_HOLD when ``stop_motion`` latched green
+   (iter20 Ep4: hold ori_tol=0.35 worsened axis 15°→17°); hold fallback
+   ori_tol 0.10; reject hold IK that fails tip-face classify.
+
 ## Iter20: Stop trajectory playback on first tip-face green (2026-07-17)
 
 **Enumerated changes**

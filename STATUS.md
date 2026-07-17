@@ -99,8 +99,12 @@ blew tip off the shell.
 via green at 13.4 mm then tip continued to **72.8 mm**; SETTLE_RESTORE could
 not recover (settle 74.4 mm + EE side sphere). Refuse-after-reseat worked.
 
-**Iter20 change:** stop joint playback on first tip-face green
-(``stop_motion`` / ``should_stop`` on ``_follow_trajectory``).
+**Iter20 smoke:** headless viz=16 abort=1 → **FAIL** `ok=3 fail=1` — Ep4
+stop-on-green held tip at 12.2 mm, but CONTACT_HOLD position-relaxed IK
+worsened axis_out 15°→17° → `PLAN_FAIL(invalid_side)`.
+
+**Iter21 change:** skip CONTACT_HOLD after stop-on-green; tighten hold ori
+tol to 0.10 rad; reject hold poses that fail tip-face classify.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
@@ -109,7 +113,9 @@ not recover (settle 74.4 mm + EE side sphere). Refuse-after-reseat worked.
 | 17 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 DLS chord miss | densify+corridor |
 | 18 | headless viz=16 abort=1 | **FAIL** 2/3 — Ep3 tip-omit pad_ok=0 | refuse+hold tip check |
 | 19 | headless viz=16 abort=1 | **FAIL** 6/7 — Ep7 post-green drift 72 mm | stop on green |
-| 20 | headless (pending) | — | then long GUI viz=48 |
+| 20 | headless viz=16 abort=1 | **FAIL** 3/4 — Ep4 CONTACT_HOLD 17° | skip hold on green |
+| 21 | headless (pending) | — | then long GUI viz=48 |
+
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -1074,6 +1080,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:51 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:58 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

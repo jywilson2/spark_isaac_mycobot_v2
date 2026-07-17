@@ -1644,8 +1644,9 @@ def run_viz(args: argparse.Namespace) -> int:
             # 13.6 mm then settle 14.0 mm (just past outer_tol) with nan axes.
             # Also refine when tip is in-shell but pad axis is past the tip-face
             # tol (iter7: dist OK after refine but axis_out≈37° with quat_now).
-            # Skip refine after SETTLE_RESTORE — green pose already validated
-            # mid-path; CONTACT_HOLD from standoff caused iter15 Ep8 no_contact.
+            # Skip refine after SETTLE_RESTORE or stop-on-green — green pose
+            # already validated mid-path. CONTACT_HOLD position-relaxed IK
+            # worsened Ep4 from green axis_out=15° to settle 17° (invalid_side).
             def _needs_contact_hold_refine() -> bool:
                 try:
                     q_chk = _get_joint_positions(articulation)
@@ -1667,7 +1668,22 @@ def run_viz(args: argparse.Namespace) -> int:
                 except Exception:
                     return not contacted
 
-            if (not restored_green) and (
+            skip_hold = bool(restored_green) or bool(
+                contact_diag.get("stop_motion")
+                and contact_diag.get("q_at_contact") is not None
+            )
+            if skip_hold and contact_diag.get("q_at_contact") is not None:
+                q_freeze = np.asarray(
+                    contact_diag["q_at_contact"], dtype=float
+                ).reshape(6).copy()
+                _set_joint_positions(articulation, q_freeze)
+                if contact_diag.get("stop_motion") and not restored_green:
+                    _viz_log(
+                        "  CONTACT_HOLD: skipped — freezing q_at_contact "
+                        "(stop_motion green)"
+                    )
+
+            if (not skip_hold) and (
                 (not contacted) or _needs_contact_hold_refine()
             ):
                 # Short axial refine toward the pierce point (surface), not the
@@ -1725,13 +1741,13 @@ def run_viz(args: argparse.Namespace) -> int:
                     )
                     hold_ok = bool(getattr(res, "success", False))
                     if not hold_ok:
-                        # Position-first fallback (iter15 Ep8: pad-facing IK
-                        # failed at tip_to_pierce=8.4 mm from standoff).
+                        # Mild orientation relax only (iter20 Ep4: 0.35 rad
+                        # position-relaxed IK made axis_out 15°→17°).
                         ik_pos = DampedLeastSquaresIK(
                             max_iterations=160,
                             damping=5e-3,
                             position_tol_m=1.5e-3,
-                            orientation_tol_rad=0.35,
+                            orientation_tol_rad=0.10,
                         )
                         res = ik_pos.solve(
                             Pose(
@@ -1744,7 +1760,7 @@ def run_viz(args: argparse.Namespace) -> int:
                         if hold_ok:
                             _viz_log(
                                 "  CONTACT_HOLD: position-relaxed IK ok "
-                                "(orientation_tol=0.35 rad)"
+                                "(orientation_tol=0.10 rad)"
                             )
                     if hold_ok:
                         tip_chk = np.asarray(
@@ -1758,6 +1774,25 @@ def run_viz(args: argparse.Namespace) -> int:
                                 level="warn",
                             )
                             hold_ok = False
+                        else:
+                            # Reject hold solutions that fail tip-face classify.
+                            fok_h, freason_h, _ = classify_tip_contact(
+                                tip_chk,
+                                target_xyz,
+                                approach_from_m=np.asarray(
+                                    ca_hold.standoff_position_m, dtype=float
+                                ).reshape(3),
+                                ee_quaternion_wxyz=forward_kinematics(
+                                    res.q
+                                ).quaternion_wxyz,
+                            )
+                            if not fok_h:
+                                _viz_log(
+                                    "  CONTACT_HOLD: IK pose fails tip-face "
+                                    f"({freason_h}) — rejecting",
+                                    level="warn",
+                                )
+                                hold_ok = False
                     if hold_ok:
                         _move_joints_at_hardware_speed(
                             articulation,
