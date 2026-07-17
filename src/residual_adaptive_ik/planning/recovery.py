@@ -208,6 +208,47 @@ def plan_axial_tip_omit_lerp(
     )
 
 
+def tip_path_avoids_marker_immersion(
+    waypoints_rad: np.ndarray,
+    *,
+    sphere_center_m: np.ndarray,
+    sphere_radius_m: float,
+    model: UrdfKinematicModel,
+    min_dist_m: float | None = None,
+    stride: int = 1,
+) -> tuple[bool, float]:
+    """Return ``(ok, min_tip_dist_m)`` — reject paths whose tip enters the volume.
+
+    Why
+    ---
+    MotionGen spheres-ON approaches can still swing the *kinematic tip* through
+    the marker (fitted collision spheres miss the exact tip point). Mid-path
+    then logs IMMERSED / THROUGH / SIDE_GRAZE → PLAN_FAIL. Sample FK tips along
+    the joint path and require ``dist ≥ radius − 1 mm``.
+    """
+    wp = np.asarray(waypoints_rad, dtype=float)
+    if wp.ndim != 2 or wp.shape[0] == 0:
+        return False, float("nan")
+    center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+    r_min = (
+        float(min_dist_m)
+        if min_dist_m is not None
+        else float(sphere_radius_m) - 0.001
+    )
+    step = max(1, int(stride))
+    min_d = float("inf")
+    for q in wp[::step]:
+        tip = np.asarray(
+            forward_kinematics(q, model=model).position_m, dtype=float
+        ).reshape(3)
+        d = float(np.linalg.norm(tip - center))
+        if d < min_d:
+            min_d = d
+        if d < r_min:
+            return False, float(min_d)
+    return True, float(min_d if np.isfinite(min_d) else float("nan"))
+
+
 def plan_dls_standoff_approach_lerp(
     q_start_rad: np.ndarray,
     standoff_position_m: np.ndarray,
@@ -880,21 +921,50 @@ def try_oriented_tip_face_contact(
             log.append(f"contact_approach_q{qi}:{leg_ap.message}")
             last_dt = float(leg_ap.dt_s)
             if leg_ap.ok:
-                quat = np.asarray(quat_try, dtype=float).reshape(4)
-                chosen_quat = quat.copy()
-                _decision(
-                    decision_emit,
-                    log,
-                    f"approach_ok q{qi} backend={leg_ap.backend}",
+                wp_chk = np.asarray(leg_ap.waypoints_rad, dtype=float)
+                clear, min_d = tip_path_avoids_marker_immersion(
+                    wp_chk,
+                    sphere_center_m=sphere_center_m,
+                    sphere_radius_m=sphere_radius_m,
+                    model=mdl,
+                    stride=max(1, wp_chk.shape[0] // 32),
                 )
-                break
+                if not clear:
+                    log.append(
+                        f"contact_approach_q{qi}:tip_immerses_path"
+                        f"|min_dist_m={min_d:.4f}"
+                    )
+                    _decision(
+                        decision_emit,
+                        log,
+                        f"approach_reject_immersion q{qi} "
+                        f"min_tip_dist_m={min_d:.4f}<r={sphere_radius_m:.4f}",
+                    )
+                    leg_ap = PlannedTrajectory(
+                        waypoints_rad=np.zeros((0, 6)),
+                        dt_s=last_dt,
+                        success=False,
+                        backend=getattr(leg_ap, "backend", "curobo"),
+                        message="plan_failed:tip_immerses_marker_path",
+                    )
+                else:
+                    quat = np.asarray(quat_try, dtype=float).reshape(4)
+                    chosen_quat = quat.copy()
+                    _decision(
+                        decision_emit,
+                        log,
+                        f"approach_ok q{qi} backend={leg_ap.backend}",
+                    )
+                    break
             # First + last failure only — avoid spamming every cone tilt.
-            if qi == 0 or qi == len(quat_candidates) - 1:
+            if (leg_ap is None or not leg_ap.ok) and (
+                qi == 0 or qi == len(quat_candidates) - 1
+            ):
                 _decision(
                     decision_emit,
                     log,
                     f"approach_fail q{qi}/{len(quat_candidates)-1} "
-                    f"msg={leg_ap.message}",
+                    f"msg={leg_ap.message if leg_ap else 'none'}",
                 )
         if leg_ap is None or not leg_ap.ok:
             # MotionGen often fails on sequential handoffs (~50–80 mm) when the

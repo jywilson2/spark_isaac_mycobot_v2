@@ -7,7 +7,10 @@ import numpy as np
 from residual_adaptive_ik.kinematics.fk import forward_kinematics
 from residual_adaptive_ik.kinematics.urdf_model import get_default_model
 from residual_adaptive_ik.planning.contact_geometry import build_sphere_contact_approach
-from residual_adaptive_ik.planning.recovery import plan_dls_standoff_approach_lerp
+from residual_adaptive_ik.planning.recovery import (
+    plan_dls_standoff_approach_lerp,
+    tip_path_avoids_marker_immersion,
+)
 
 
 def test_dls_standoff_approach_reaches_near_standoff():
@@ -67,3 +70,25 @@ def test_dls_standoff_rejects_immersing_chord():
     )
     assert not traj.ok
     assert "plan_failed:dls_approach" in traj.message
+
+
+def test_tip_path_avoids_marker_immersion():
+    mdl = get_default_model()
+    q = np.zeros(6)
+    tip = np.asarray(forward_kinematics(q, model=mdl).position_m, dtype=float)
+    wp = np.vstack([q, q])
+    ok, _d = tip_path_avoids_marker_immersion(
+        wp,
+        sphere_center_m=tip + np.array([1.0, 0.0, 0.0]),
+        sphere_radius_m=0.012,
+        model=mdl,
+    )
+    assert ok
+    bad, min_d = tip_path_avoids_marker_immersion(
+        wp,
+        sphere_center_m=tip,
+        sphere_radius_m=0.05,
+        model=mdl,
+    )
+    assert not bad
+    assert min_d < 0.01

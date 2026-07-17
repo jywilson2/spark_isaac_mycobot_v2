@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter11: Reject tip-immersing MotionGen approach paths (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — `tip_path_avoids_marker_immersion`; after MotionGen
+   approach OK, sample FK tips and reject if any tip enters the marker volume
+   (then try next cone / DLS). Prevents mid-path IMMERSED/THROUGH/SIDE_GRAZE
+   that still greened later (iter10 Ep5).
+
 ## Iter10: Mid-path wrong_side latch only for clear side/back (2026-07-17)
 
 **Enumerated changes**
