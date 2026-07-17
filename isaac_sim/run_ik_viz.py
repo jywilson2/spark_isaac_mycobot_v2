@@ -1476,18 +1476,28 @@ def run_viz(args: argparse.Namespace) -> int:
                         _on_step(q_hold)
                 except Exception:
                     pass
-                if contacted and q_freeze is not None:
-                    # Keep the first contact pose if we latched mid-hold.
-                    pass
-                elif contacted and q_freeze is None:
-                    try:
-                        q_freeze = np.asarray(
-                            _get_joint_positions(articulation), dtype=float
-                        ).reshape(6).copy()
-                    except Exception:
-                        pass
                 simulation_app.update()
-            if not contacted:
+
+            # Axial pierce refine when tip is outside the surface shell — even if
+            # a mid-path green already latched ``contacted``. Iter6: green at
+            # 13.6 mm then settle 14.0 mm (just past outer_tol) with nan axes.
+            def _tip_outside_surface_shell() -> bool:
+                try:
+                    tip_chk = np.asarray(
+                        forward_kinematics(
+                            _get_joint_positions(articulation)
+                        ).position_m,
+                        dtype=float,
+                    ).reshape(3)
+                    d_chk = float(np.linalg.norm(tip_chk - target_xyz))
+                    return d_chk > (
+                        float(TARGET_MARKER_CONTACT_DISTANCE_M)
+                        + float(TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M)
+                    )
+                except Exception:
+                    return not contacted
+
+            if (not contacted) or _tip_outside_surface_shell():
                 # Short axial refine toward the pierce point (surface), not the
                 # marker center. Keeps tip-face contact without reintroducing
                 # side/flange immersion from a center-drive to trial.q_sol.
@@ -1512,7 +1522,12 @@ def run_viz(args: argparse.Namespace) -> int:
                         DampedLeastSquaresIK,
                     )
 
-                    ik = DampedLeastSquaresIK()
+                    ik = DampedLeastSquaresIK(
+                        max_iterations=80,
+                        damping=1e-3,
+                        position_tol_m=5e-4,
+                        orientation_tol_rad=0.05,
+                    )
                     quat_now = forward_kinematics(q_now).quaternion_wxyz
                     res = ik.solve(
                         Pose(position_m=pierce, quaternion_wxyz=quat_now),

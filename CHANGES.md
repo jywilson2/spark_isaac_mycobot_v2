@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter7: CONTACT_HOLD refine when tip outside shell after green (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — after settle hold, run axial pierce refine if tip
+   distance exceeds ``radius + outer_tol``, even when mid-path ``contacted``
+   already latched (fixes Ep2 13.6→14.0 mm settle `no_contact`).
+
 ## Iter6: Freeze joints during contact settle hold (2026-07-17)
 
 **Enumerated changes**

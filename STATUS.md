@@ -35,8 +35,12 @@ MotionGen approach_ok (cone) + green mid-path, then settle `no_contact`
 dist=18.7 mm (tip drifted out during hold after `contacted` stopped
 joint commands).
 
-**Iter6 change:** freeze joint targets through settle / CONTACT_HOLD windows
-so tip does not drift back to standoff after a green flash.
+**Iter6 smoke:** headless viz=16 abort=1 → **FAIL** `ok=1 fail=1` — Ep2
+green 13.6 mm → settle 14.0 mm (just past outer_tol); freeze reduced drift
+but mid-path green still skipped CONTACT_HOLD.
+
+**Iter7 change:** run axial pierce refine whenever tip is outside the surface
+shell after the hold (not only when ``contacted`` is false).
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
@@ -45,7 +49,8 @@ so tip does not drift back to standoff after a green flash.
 | 3 | headless viz=16 abort=1 | **FAIL** 13/16 — settle `no_contact` + mid-path latch | hard FK tip-omit gate |
 | 4 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 approach IK wall ~60 mm | DLS standoff approach fallback |
 | 5 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 settle drift 13.4→18.7 mm | freeze joints on hold |
-| 6 | headless (pending) | — | then long GUI viz=48 |
+| 6 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 settle 14.0 mm past outer | refine even if contacted |
+| 7 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -926,6 +931,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:41 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:42 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 
