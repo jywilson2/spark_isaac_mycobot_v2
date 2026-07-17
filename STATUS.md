@@ -70,12 +70,14 @@ skipped** (`isaac_sim` not on residual import path).
 mid-path SIDE_GRAZE lat=6 mm (tip-face R=4 mm). Likely on tip-omit segment
 (approach tip-face reject may not cover tip-omit waypoints).
 
-**Still open:** tip-omit path tip-face validation; then long GUI viz=48.
+**Iter15 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — Ep8
+`PLAN_FAIL(no_contact)` (side_graze latch gone after tip-omit tip-face check;
+settle still short of shell).
 
-| Iter | Smoke | Outcome |
-|------|-------|---------|
-| Best so far | headless | **7/8** (iters 9,12,14) before early-abort |
-| Goal | GUI viz=48 rate=1.0 | not yet |
+**Best headless so far:** 7/8 with early-abort. Long GUI viz=48 not started
+until headless fills 16/16 at rate 1.0.
+
+Monitor: [STATUS.md](STATUS.md) § Autonomous long-GUI iteration.
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -1010,6 +1012,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:56 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:58 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 
