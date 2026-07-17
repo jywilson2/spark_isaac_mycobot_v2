@@ -109,6 +109,7 @@ def test_dls_approach_caller_applies_tip_face_gate():
     assert "plan_failed:dls_tip_face_" in src
     assert "approach_dls_reject_arm_body" in src
     assert "approach_dls_reject_immersion" in src
+    assert "tip_omit_refused_after_reseat" in src
 
 
 def test_tip_path_tip_face_ok_rejects_near_field_lateral():

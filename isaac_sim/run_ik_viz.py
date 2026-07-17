@@ -1721,6 +1721,18 @@ def run_viz(args: argparse.Namespace) -> int:
                                 "(orientation_tol=0.35 rad)"
                             )
                     if hold_ok:
+                        tip_chk = np.asarray(
+                            forward_kinematics(res.q).position_m, dtype=float
+                        ).reshape(3)
+                        tip_err = float(np.linalg.norm(tip_chk - pierce))
+                        if tip_err > 0.005:
+                            _viz_log(
+                                "  CONTACT_HOLD: IK tip_err_m="
+                                f"{tip_err:.4f} > 5mm — rejecting solution",
+                                level="warn",
+                            )
+                            hold_ok = False
+                    if hold_ok:
                         _move_joints_at_hardware_speed(
                             articulation,
                             res.q,

@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter19: Refuse tip-omit when reseat pad stays misaligned (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — after spheres-ON reseat, if pad still misaligned return
+   ``None`` (via recovery) instead of ``try_axial_only`` (iter18 Ep3).
+2. **`run_ik_viz.py`** — CONTACT_HOLD validates FK tip within 5 mm of pierce;
+   otherwise restore ``q_at_contact`` (prevents 12 mm → 36 mm blowouts).
+
 ## Iter18: Densify tip-face path + near-field lateral corridor (2026-07-17)
 
 **Enumerated changes**

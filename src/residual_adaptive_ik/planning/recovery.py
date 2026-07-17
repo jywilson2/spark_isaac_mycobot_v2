@@ -1554,11 +1554,35 @@ def try_oriented_tip_face_contact(
                 chosen_quat = np.asarray(reseat_quat, dtype=float).reshape(4)
                 quat = chosen_quat
             else:
+                # Refuse tip-omit when reseat cannot pad-align (iter18 Ep3:
+                # pad_ok=0 still ran axial_lerp → WRONG_SIDE flash then
+                # CONTACT_HOLD blew tip to 36 mm / no_contact). Prefer vias.
                 log.append(
-                    f"contact_nudge_warn:pad_misaligned_after_reseat:"
+                    f"contact_nudge_refused:pad_misaligned_after_reseat:"
                     f"axis_err={axis_err2:.3f}>tol={axis_tol2:.3f}"
-                    f"|try_axial_only"
                 )
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_refused_after_reseat "
+                    f"axis_err_rad={axis_err2:.3f}>tol_rad={axis_tol2:.3f}",
+                )
+                return None
+
+    if not pad_ok_for_motiongen and tip_track_err_m <= tip_track_tol_m:
+        # Hard refuse when FK tracks standoff but pad still misaligned and we
+        # did not reseat (or reseat failed without returning above).
+        log.append(
+            f"contact_nudge_refused:pad_misaligned:"
+            f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}"
+        )
+        _decision(
+            decision_emit,
+            log,
+            f"tip_omit_refused_orientation "
+            f"axis_err_rad={axis_err:.3f}>tol_rad={axis_tol:.3f}",
+        )
+        return None
 
     leg_nudge = plan_axial_tip_omit_lerp(
         q_cur,
