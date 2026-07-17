@@ -9,8 +9,8 @@
 #     from a native desktop session (DISPLAY). Prefer not nsenter-as-root for GUI.
 #
 #   ./scripts/host/smoke_isaac_viz.sh           # headless (CI default)
-#   ./scripts/host/smoke_isaac_viz.sh --gui     # visible Isaac Sim window
-#   ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
+#   ./scripts/host/smoke_isaac_viz.sh --gui     # visible; home once (default)
+#   ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home  # independent episodes
 #
 # Legacy alias: scripts/host/smoke_isaac_viz.sh → this script.
 #
@@ -65,6 +65,9 @@ spark_host_apply_env || exit 1
 "${SPARK_REPO_ROOT}/scripts/download_mycobot_ros2.sh"
 
 # Prefer ISAAC_VIZ_SMOKE_*; accept legacy PHASE1_SMOKE_* aliases.
+# Headless and GUI share the same planning workload (n_poses / visualize /
+# reset policy / rate gate). Headless only omits the Kit window and may apply
+# a time-warp so playback is faster when no human is watching.
 N_POSES="${ISAAC_VIZ_SMOKE_N_POSES:-${PHASE1_SMOKE_N_POSES:-240}}"
 N_VIZ="${ISAAC_VIZ_SMOKE_VISUALIZE:-${PHASE1_SMOKE_VISUALIZE:-48}}"
 HOLD="${ISAAC_VIZ_SMOKE_HOLD_S:-${PHASE1_SMOKE_HOLD_S:-0.2}}"
@@ -76,9 +79,12 @@ ARGS=(--skip-tests -- --num-poses "${N_POSES}" --visualize "${N_VIZ}" --hold-s "
 if [[ -n "${MIN_PLAN_OK_RATE}" ]]; then
   ARGS+=(--min-plan-ok-rate "${MIN_PLAN_OK_RATE}")
 fi
-# CLI / env override for home reset (YAML default is false).
+# CLI / env override for home reset.
+# Default: sequential multi-target (no per-trial home) — matches CLI/YAML and
+# required Spark GUI smoke (home once at first episode only). Set
+# ISAAC_VIZ_SMOKE_RESET_TO_HOME=1 or pass --reset-to-home for independent episodes.
 if [[ -z "${RESET_HOME}" ]]; then
-  RESET_HOME="${ISAAC_VIZ_SMOKE_RESET_TO_HOME:-${PHASE1_SMOKE_RESET_TO_HOME:-}}"
+  RESET_HOME="${ISAAC_VIZ_SMOKE_RESET_TO_HOME:-${PHASE1_SMOKE_RESET_TO_HOME:-0}}"
 fi
 if [[ "${RESET_HOME}" == "1" || "${RESET_HOME}" == "true" ]]; then
   ARGS+=(--reset-to-home)
@@ -87,13 +93,23 @@ elif [[ "${RESET_HOME}" == "0" || "${RESET_HOME}" == "false" ]]; then
 fi
 if [[ "${GUI}" -eq 0 ]]; then
   ARGS+=(--headless)
-  echo "NOTE: running headless (no GUI). Pose animation still runs in-Kit."
+  # Accelerate articulation playback when no one is watching (default 4×).
+  # Override with ISAAC_VIZ_SMOKE_TIME_WARP=1 for real-time parity with GUI.
+  TIME_WARP="${ISAAC_VIZ_SMOKE_TIME_WARP:-${PHASE1_SMOKE_TIME_WARP:-4}}"
+  ARGS+=(--time-warp "${TIME_WARP}")
+  echo "NOTE: running headless (no GUI). Full Phase 2 planning still runs in-Kit."
+  echo "      time_warp=${TIME_WARP}× (ISAAC_VIZ_SMOKE_TIME_WARP; set 1 for real-time)."
   echo "      For a visible window: $0 --gui   (host desktop session with DISPLAY)"
 else
   if [[ -z "${DISPLAY:-}" ]]; then
     echo "ERROR: --gui requested but DISPLAY is unset." >&2
     echo "Run from a graphical host login, or export DISPLAY (e.g. :1)." >&2
     exit 1
+  fi
+  # GUI stays real-time by default so a human can follow the motion.
+  TIME_WARP="${ISAAC_VIZ_SMOKE_TIME_WARP:-${PHASE1_SMOKE_TIME_WARP:-1}}"
+  if [[ "${TIME_WARP}" != "1" && "${TIME_WARP}" != "1.0" ]]; then
+    ARGS+=(--time-warp "${TIME_WARP}")
   fi
   echo "NOTE: GUI mode (DISPLAY=${DISPLAY}). Isaac Sim window should appear."
   # Auto-close after animation so agents / nsenter can finish without manual Ctrl+C.
@@ -107,7 +123,7 @@ ARGS+=("${EXTRA[@]+"${EXTRA[@]}"}")
 
 echo "=== Isaac viz smoke (host; Phase 1 metrics + Phase 2 planning) ==="
 echo "ISAACSIM_PATH=${ISAACSIM_PATH}"
-echo "GUI=${GUI} n_poses=${N_POSES} visualize=${N_VIZ} (visualize=animate trials, not 'show window')"
+echo "GUI=${GUI} n_poses=${N_POSES} visualize=${N_VIZ} time_warp=${TIME_WARP:-1} (visualize=animate trials, not 'show window')"
 if [[ -n "${MIN_PLAN_OK_RATE}" ]]; then
   echo "min_plan_ok_rate=${MIN_PLAN_OK_RATE} (ISAAC_VIZ_MIN_PLAN_OK_RATE)"
 else

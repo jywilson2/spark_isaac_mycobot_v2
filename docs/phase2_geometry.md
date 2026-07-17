@@ -65,16 +65,16 @@ Two explicit modes ([spec.md](../spec.md) § Sequential multi-target sequences):
 
 | Mode | Config / CLI | When to use |
 |------|--------------|-------------|
-| **Independent episodes** | `reset_to_home_before_each_trial: true` (YAML default) / `--reset-to-home` | Reproducible 1.0 rate gate from a known start |
-| **Sequential multi-target** | `false` / `--no-reset-to-home` | Operational chain of IK goals without per-target home |
+| **Sequential multi-target (default)** | `reset_to_home_before_each_trial: false` / `--no-reset-to-home` (CLI default) | Required Spark GUI smoke + operational goal→goal chains |
+| **Independent episodes (opt-in)** | `true` / `--reset-to-home` | Dedicated 1.0 rate-gate benchmark from a known start |
 
-Home is always applied **once** at viz session start. Per-trial home is a benchmark convenience — not the only acceptance path.
+Home is always applied **once** at viz session start (first episode). Required GUI smoke **must not** return home between episodes.
 
 ```bash
-# Independent episodes (YAML default / explicit):
+# Default / required GUI smoke (home once only):
+./scripts/host/smoke_isaac_viz.sh --gui
+# Independent episodes (opt-in rate gate):
 ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
-# Sequential multi-target (path-dependent recovery):
-./scripts/host/smoke_isaac_viz.sh --gui --no-reset-to-home
 ```
 
 ## Plan recovery (standoff via-waypoints)
@@ -91,7 +91,21 @@ Yellow + motionless means the wall-clock budget expired with no executable path.
 
 ### Tip-face contact (red → green → success gate)
 
-Green requires the **middle of the EE tip contact pad** on the marker surface along the approach ray (`ee_contacts_target(..., approach_from_m=…)`). Side / equator grazes are not valid contact.
+Green requires the **middle of the EE tip contact pad** on the marker surface along the approach ray, classified by `classify_tip_contact(...)` (which `ee_contacts_target` wraps). It returns `(ok, reason, metrics)` and rejects the failure modes that previously registered green:
+
+- `through` — tip crossed to the far hemisphere along the approach (passed **through** the sphere).
+- `side_graze` — contact off the tip-face pad (lateral > `TARGET_MARKER_TIP_FACE_RADIUS_M`).
+- `wrong_side_axis` — flange +Z not aligned with the **outward** normal. The check is now **signed** (`TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ 35° on `axis_out`, not folded), so it rejects both the **side/barrel** contact (`axis_out ≈ 90°`) and the **flipped/back** contact where +Z points toward the center (`axis_out ≈ 180°`). The flipped case is exactly the "marker turns green but touches the EE from the inside/back" defect the old folded check accepted.
+
+**Tool-axis sign convention (empirical):** commanding the contact pose with +Z **inward** (toward center) makes cuRobo `IK_FAIL` on every via (0 green); the reachable, visually-correct contacts measure `axis_out ≈ 0–7°`. So `build_sphere_contact_approach` commands +Z along the **outward** normal and the gate requires `axis_out` small. Note `contact_geometry`'s +Z is opposite the URDF/FK tool +Z, so the *achieved* front contact reads `axis_out ≈ 0` — confirm against the physical MyCobot flange before hardware.
+
+**Authoritative final-pose check:** the live green during motion is only visual; after the hold the **settled** pose is re-classified. A green that settles wrong-side/through is overridden to `CONTACT_INVALID_SIDE` → `PLAN_FAIL(invalid_side)` — a transient green flash never counts as success.
+
+**Via-pressure (repeated-via math):** `ViaPressureTracker` folds each episode's via count into a via-usage EMA `E_i = α·u_i + (1−α)·E_{i−1}` (`u_i = 1[via≥1]`, `α = 0.5`), a via-count EMA `A_i`, and a consecutive-via streak `S_i`. `VIA_PRESSURE_HIGH` fires when `E_i ≥ 0.6` **and** `S_i ≥ 3`, flagging systematically wrong-sided approaches across consecutive episodes.
+
+The viz logs `MARKER_CONTACT / MARKER_THROUGH / MARKER_SIDE_GRAZE / MARKER_WRONG_SIDE` (with dist/penetration/lateral/`axis_in`/`axis_out`), `CONTACT_INVALID_SIDE`, `VIA_PRESSURE` / `VIA_PRESSURE_HIGH`, plus `EE_CLOSE` and `HIGH_RETRY_WHEN_CLOSE` to attribute high retry counts when the EE starts near the target.
+
+**Planning policy:** tip/flange spheres stay **on** until a short oriented standoff (`contact_standoff_m`); only the final axial standoff→pierce segment omits tip spheres (`try_oriented_tip_face_contact`). The post-via tip-omit cap `contact_via_nudge_max_m` is kept **short** (0.020 m) so a long tip-omit move cannot sweep the EE barrel through the marker; longer gaps are closed by a spheres-ON approach (long tip-omit → `contact_nudge_direct_refused`). This avoids EE-side sweeps through the volumetric marker.
 
 **Contact is required for success:** A trial that gets PLAN_OK but the tip never reaches the sphere surface (`MARKER_NO_CONTACT`) is **reclassified as PLAN_FAIL** — the sphere turns yellow, and the trial counts against the rate gate. This ensures `min_plan_ok_rate: 1.0` means 100% contact, not just 100% planning.
 
@@ -114,6 +128,7 @@ Unit tests: `tests/test_recovery_audit.py`.
 | Approach standoff then contact (via) | **Implemented** | Timed recovery; nearest → farthest |
 | Multi-seed IK bank (joint space) | **Implemented** | `ik_seed_bank.py`; via2 IK fallback |
 | Plan / open-loop to preparatory `q_seed` | **Implemented** | `try_move_to_preparatory_seed` on `INVALID_START` |
+| Base→target reposition via (`EE_CLOSE` `IK_FAIL`) | **Implemented** | `try_radial_reposition_via`; valid-start but tip folded inside the standoff shell — back off along the base→target radial to an extended pre-approach, then retry oriented contact. Bounded by `plan_recovery_reposition_max_attempts` |
 | Home-blend | Last resort | After seed bank exhausted |
 | MoveIt 2 / cuMotion pipelines | Documented | Optional later |
 
@@ -127,9 +142,41 @@ For MyCobot + a single volumetric marker in Isaac Sim, **cuRobo is the better de
 
 Useful libraries: [cuRobo](https://curobo.org/), [Isaac ROS cuMotion](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/index.html), [MoveIt 2](https://moveit.picknik.ai/), [OMPL](https://ompl.kavrakilab.org/).
 
+## Dexterous prescreen, orientation cone, and budget (2026-07-17)
+
+Near-envelope targets often `IK_FAIL` the exact outward-normal contact pose.
+Three mechanisms (see [spec.md](../spec.md) § *Dexterous-workspace prescreen …*):
+
+- **Dexterity prescreen** (`planning/dexterity.py`) — deterministic DLS-IK
+  reachability of the pad-facing contact pose (pierce on the `base→target` ray,
+  a bounded orientation cone, **both** tool-axis signs, FK-sampled orientation-
+  aware seeds). Position/reach-unreachable → `SKIPPED_UNREACHABLE`, excluded from
+  the gate. Orientation-limited-but-reachable → **not** skipped by default
+  (`plan_prescreen_skip_orientation_infeasible: false`): DLS is not a reliable
+  6-DOF orientation-completeness oracle, so skipping on it would over-skip and
+  dishonestly inflate the gate. A reliable analytic/IKFast/TRAC-IK oracle is the
+  prerequisite for enabling orientation skipping (see [REFERENCES.md](../REFERENCES.md)).
+- **Bounded orientation cone** (`contact_orientation_cone`) — tries pad-facing
+  tilts ≤ `contact_orientation_cone_max_rad` (≈17°, under the 35° gate tol) when
+  the exact normal `IK_FAIL`s; the chosen orientation is threaded into the
+  tip-omit nudge. Honest by construction — never accepts side/through contacts.
+- **Planning budget** — `curobo_max_attempts` 4→6 + `curobo_num_ik_seeds` /
+  `curobo_num_trajopt_seeds`. Helps most under GUI GPU contention, where cuRobo
+  gets fewer `plan_single` attempts inside the wall-clock recovery budget than
+  headless (why the GUI test shows more failures than headless — see STATUS.md).
+
+**Frame-convention reminder (unchanged):** the planner commands tool +Z along the
+**outward** normal (empirically the cuRobo-reachable sign); the gate measures the
+achieved FK +Z against the outward normal (`axis_out` small). The cone tilts the
+commanded direction, so achieved `axis_out` stays within the tilt of the exact
+normal — safely under the gate tolerance.
+
 ## Honest limits
 
 - Fitted spheres approximate meshes (cuRobo `VOXEL_VOLUME_SAMPLE_SURFACE`); not exact mesh–mesh contact.
+- The dexterity prescreen's DLS oracle is **approximate** — it reliably detects
+  reach-unreachability, but not orientation-completeness (hence orientation
+  skipping is opt-in only).
 - `G_base.dae` is authored in mm; the fitter auto-scales by 0.001.
 - Tip/flange spheres are kept; the tip plans to the marker **surface** (+ margin) so flange immersion is not forced.
 - cuRobo requires host Isaac `python.sh` + CUDA; CI uses NumPy fallback.

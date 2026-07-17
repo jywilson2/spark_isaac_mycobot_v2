@@ -17,7 +17,22 @@ ground_z_m: -0.02
 # Prefer cuRobo on host when CUDA is available.
 prefer_curobo: true
 curobo_interpolation_dt_s: 0.02
-curobo_max_attempts: 4
+# Per-plan MotionGen retries. Raised 4→6 as part of the planning-budget increase
+# (spec.md Phase 2 "more budget") to cut nondeterministic IK_FAIL timeouts on
+# near-envelope targets, especially under GUI GPU contention.
+curobo_max_attempts: 6
+# cuRobo MotionGen seed counts (planning-budget lever). More IK / trajopt seeds
+# raise the probability that a hard near-envelope contact pose solves within the
+# wall-clock budget. Passed to MotionGenConfig.load_from_robot_config; if the
+# installed cuRobo build rejects a kwarg it is silently ignored (defaults kept).
+# null = use cuRobo defaults.
+curobo_num_ik_seeds: 48
+curobo_num_trajopt_seeds: 16
+# Optional per-plan MotionGenPlanConfig overrides (null = cuRobo default).
+# enable_graph runs a graph/geometric planner pass (slower, higher success on
+# hard poses); timeout bounds a single plan_single call (seconds).
+curobo_plan_enable_graph: null
+curobo_plan_timeout_s: null
 
 # When cuRobo is available and rejects a plan, do NOT fall back to NumPy lerp
 # for execution (capsules miss EE-side vs marker). CI uses prefer_curobo=false.
@@ -31,11 +46,11 @@ target_obstacle_enabled: true
 gate_motion_on_plan_failure: true
 
 # Return to home_joint_positions_rad before each viz / diagnostic trial.
-# Independent-episode mode (default true): reproducible 1.0 rate gate from a
-# known collision-free start. Sequential multi-target use case (spec.md): set
-# false or pass --no-reset-to-home so goals chain without per-target home.
-# Home is still applied once at viz session start either way.
-reset_to_home_before_each_trial: true
+# Default false = sequential multi-target (spec.md): home once at session start
+# only; goals chain without per-target home. Opt into independent episodes with
+# --reset-to-home (or set true here) for the strict 1.0 rate-gate benchmark.
+# Required Spark GUI smoke must use sequential mode (home only on first episode).
+reset_to_home_before_each_trial: false
 
 # After a direct plan fails, retry via standoff waypoints until timeout.
 plan_recovery_enabled: true
@@ -59,6 +74,82 @@ plan_recovery_surface_margin_m: 0.015
 # Plan to FK(q_seed) when possible; open-loop joint move when start is colliding.
 plan_recovery_prep_seed_enabled: true
 plan_recovery_prep_seed_max: 4
+# EE-close IK_FAIL reposition: when the tip starts inside the standoff shell and
+# the oriented contact IK fails, back the arm off along the base→target radial
+# to a comfortable pre-approach so the contact IK becomes solvable, then retry.
+plan_recovery_reposition_enabled: true
+# Trigger when tip-to-center ≤ radius + this shell (meters). ~0.06 m ≈ the
+# EE_CLOSE shell the viz flags.
+plan_recovery_reposition_close_shell_m: 0.06
+# Pre-approach clearances from the marker center (meters), along base→target.
+plan_recovery_reposition_clearances_m: [0.08, 0.12, 0.16]
+# Lateral yaw offsets (radians) about +Z for the pre-approach direction.
+plan_recovery_reposition_yaws_rad: [0.0, 0.4, -0.4]
+# Max reposition vias per trial (bounded so recovery cannot loop).
+plan_recovery_reposition_max_attempts: 2
+
+# Oriented tip-face contact (spec.md): approach with tip spheres ON to a short
+# standoff along the sphere normal (tool +Z facing the marker), then omit tip
+# spheres only for the axial standoff→pierce segment (length ≈ contact_standoff_m).
+contact_axis_enabled: true
+# Distance outside the marker surface where tip spheres stay ON (meters).
+contact_standoff_m: 0.008
+# Nominal tip-omit axial length (meters); typically equals contact_standoff_m.
+contact_nudge_m: 0.008
+# Hard cap on tip-omit Cartesian length (meters).
+contact_nudge_max_m: 0.020
+# Tip-omit final segment cap (meters) after a recovery via. Kept SHORT on
+# purpose: with tip/flange spheres OFF, a long axial nudge lets the EE barrel
+# sweep *through* the volumetric marker (the "moves through the red sphere"
+# bug). Larger start→pierce gaps must instead be closed by a spheres-ON
+# approach to the oriented standoff (try_oriented_tip_face_contact), then only
+# this short tip-omit nudge onto the pierce point. Do NOT raise this to "make
+# far vias pass" — that reintroduces through-sphere false greens.
+contact_via_nudge_max_m: 0.020
+contact_lateral_tolerance_m: 0.003
+# Max tool-axis misalignment (rad) for green tip-face contact validation.
+contact_axis_tolerance_rad: 0.35  # ~20 deg
+
+# Bounded orientation cone for edge targets (spec.md Phase 2). When the exact
+# outward-normal contact pose IK-fails, try a small cone of pad-facing tool-axis
+# directions around the outward normal. Every candidate stays within
+# contact_orientation_cone_max_rad of the normal, so the honest tip-face gate
+# (axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD ≈ 35°) still holds — this is NOT a
+# way to accept side/through contacts. Keep cone_max_rad well under the gate tol.
+contact_orientation_cone_enabled: true
+contact_orientation_cone_max_rad: 0.30   # ~17 deg (< 35° gate tol)
+contact_orientation_cone_tilts: 2
+contact_orientation_cone_azimuths: 4
+
+# Dexterity prescreen (spec.md Phase 2, recommended step #1). Before planning,
+# a deterministic DLS-IK check tests whether the oriented pad-facing contact
+# pose (pierce point + a cone orientation, both tool-axis signs, multiple
+# seeds) is reachable within joint limits. Targets that are provably
+# orientation-infeasible are reported RESULT SKIPPED_UNREACHABLE and excluded
+# from the PLAN_OK rate gate (they are sampler optimism, not planner faults).
+# HONESTY: this is intentionally STRICT so it does not mask genuine PLAN_FAILs —
+# a target is skipped only when NO seed/orientation/sign converges.
+plan_prescreen_dexterity_enabled: true
+# Backend for the dexterous-workspace gate: auto → Pinocchio when importable
+# (host Isaac Sim Python), else NumPy DLS. Pinocchio is the preferred classical
+# library (analytic Jacobians); see planning/pinocchio_ik.py and REFERENCES.md.
+plan_prescreen_backend: auto
+plan_prescreen_position_tol_m: 0.006
+plan_prescreen_orientation_tol_rad: 0.35
+plan_prescreen_seeds: 12
+# Skip position-reachable / orientation-infeasible targets?
+# null = auto: True when Pinocchio backend is selected, False for NumPy (honesty).
+# Explicit true/false overrides the auto policy.
+plan_prescreen_skip_orientation_infeasible: null
+# "Dexterous Region" interior margin (meters) inside the reach envelope
+# (configs/robot/workspace.yaml min_reach_m..max_reach_m). A SKIPPED_UNREACHABLE
+# target whose radial distance is still inside this interior shell is flagged by
+# the end-of-test analyzer as orientation-limited (position is comfortable) and
+# gets a via speculation. Units: meters.
+# Interior margin (m) defining the Dexterous Region shell:
+# [min_reach+margin, max_reach−margin]. Targets outside are SKIPPED_UNREACHABLE
+# (geometric dexterous-workspace gate). 0.04 → ~[0.16, 0.24] m for MyCobot 280.
+dexterous_region_margin_m: 0.04
 
 # Isaac viz / smoke: fail if PLAN_OK / (OK+FAIL) is below this (1.0 = require all).
 # Override with --min-plan-ok-rate or ISAAC_VIZ_MIN_PLAN_OK_RATE.

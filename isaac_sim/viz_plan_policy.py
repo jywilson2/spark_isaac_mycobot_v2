@@ -13,6 +13,7 @@ See ``spec.md`` Phase 2, ``configs/planning/collision.yaml``, and
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -83,6 +84,78 @@ def plan_result_is_executable(traj: Any) -> bool:
     # Recovery may have already executed vias via execute_waypoints; a 1-row
     # hold at the final joints is still executable.
     return True
+
+
+@dataclass
+class ViaPressureTracker:
+    r"""Quantify the **repeated need for vias in consecutive episodes**.
+
+    Motivation
+    ----------
+    When targets are approached from the wrong side of the EE, the direct
+    oriented tip-face contact fails and recovery falls back to standoff
+    **vias**. A *single* episode needing a via is normal; the diagnostic signal
+    is vias being needed **repeatedly, in consecutive episodes** — that points
+    to a systematic bad approach angle rather than one awkward pose.
+
+    Mathematical definition (per episode :math:`i`)
+    -----------------------------------------------
+    Let :math:`a_i \ge 0` be the standoff via count in episode :math:`i` and
+    :math:`u_i = \mathbb{1}[a_i \ge 1]` the "needed a via" indicator. With
+    smoothing :math:`\alpha \in (0, 1]`:
+
+    - **EMA of via usage** (smoothed fraction of recent episodes needing a via):
+      :math:`E_i = \alpha\, u_i + (1-\alpha)\, E_{i-1}`, :math:`E_0 = u_0`.
+    - **EMA of via count**:
+      :math:`A_i = \alpha\, a_i + (1-\alpha)\, A_{i-1}`.
+    - **Consecutive-via streak**:
+      :math:`S_i = S_{i-1} + 1` if :math:`u_i = 1` else :math:`0`.
+
+    The pressure is **high** when
+    :math:`E_i \ge` ``ema_usage_threshold`` **and**
+    :math:`S_i \ge` ``streak_threshold`` — i.e. vias are needed across a
+    sustained run of consecutive episodes.
+
+    Units: dimensionless (counts / fractions). Pure + deterministic (testable
+    without Isaac).
+    """
+
+    alpha: float = 0.5
+    ema_usage_threshold: float = 0.6
+    streak_threshold: int = 3
+    _ema_usage: float | None = field(default=None, repr=False)
+    _ema_attempts: float | None = field(default=None, repr=False)
+    _streak: int = field(default=0, repr=False)
+    _max_streak: int = field(default=0, repr=False)
+    _n: int = field(default=0, repr=False)
+
+    def update(self, via_attempts: int) -> dict:
+        """Fold one episode's ``via_attempts`` in; return the current signals."""
+        a = max(0, int(via_attempts))
+        u = 1.0 if a >= 1 else 0.0
+        if self._ema_usage is None:
+            self._ema_usage = u
+            self._ema_attempts = float(a)
+        else:
+            self._ema_usage = self.alpha * u + (1.0 - self.alpha) * self._ema_usage
+            self._ema_attempts = (
+                self.alpha * float(a) + (1.0 - self.alpha) * self._ema_attempts
+            )
+        self._streak = self._streak + 1 if u >= 1.0 else 0
+        self._max_streak = max(self._max_streak, self._streak)
+        self._n += 1
+        high = (
+            self._ema_usage >= self.ema_usage_threshold
+            and self._streak >= self.streak_threshold
+        )
+        return {
+            "ema_usage": float(self._ema_usage),
+            "ema_attempts": float(self._ema_attempts),
+            "streak": int(self._streak),
+            "max_streak": int(self._max_streak),
+            "n": int(self._n),
+            "high": bool(high),
+        }
 
 
 def resolve_marker_visual_state(

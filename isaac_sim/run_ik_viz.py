@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -43,11 +44,14 @@ from isaac_sim.target_marker import (  # noqa: E402
     TARGET_MARKER_BASE_KEEPOUT_Z_M,
     TARGET_MARKER_CONTACT_DISTANCE_M,
     TARGET_MARKER_RADIUS_M,
+    TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M,
+    classify_tip_contact,
     ee_contacts_target,
     marker_rgb_for_state,
 )
 from isaac_sim.viz_plan_policy import (  # noqa: E402
     MarkerVisualState,
+    ViaPressureTracker,
     may_execute_motion,
     meets_min_plan_ok_rate,
     plan_ok_rate,
@@ -93,6 +97,17 @@ from residual_adaptive_ik.planning.recovery import (  # noqa: E402
     plan_collision_free_with_recovery,
     recovery_via_attempts_in_message,
 )
+from residual_adaptive_ik.planning.dexterity import (  # noqa: E402
+    contact_pose_is_dexterous,
+)
+from residual_adaptive_ik.planning.skipped_analysis import (  # noqa: E402
+    analyze_and_report,
+)
+
+# A recovery that needs at least this many standoff vias while the EE started
+# near the target is flagged HIGH_RETRY_WHEN_CLOSE for diagnosis (see EE_CLOSE).
+HIGH_RETRY_VIA_THRESHOLD = 5
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -120,7 +135,15 @@ def parse_args() -> argparse.Namespace:
         "--hold-s",
         type=float,
         default=0.75,
-        help="Seconds to hold each visualized IK solution",
+        help="Seconds to hold each visualized IK solution (wall-clock; scaled by --time-warp)",
+    )
+    parser.add_argument(
+        "--time-warp",
+        type=float,
+        default=1.0,
+        help="Playback speed multiplier for joint motion + holds (1.0 = real-time hardware "
+        "cap). Headless smokes typically use >1 (no human watching). Does not change "
+        "planner physics — only articulation playback / hold waits.",
     )
     parser.add_argument(
         "--seed",
@@ -177,17 +200,17 @@ def parse_args() -> argparse.Namespace:
         "--reset-to-home",
         dest="reset_to_home",
         action="store_true",
-        default=None,
-        help="Return to home_joint_positions_rad before each viz trial "
-        "(overrides configs/planning/collision.yaml)",
+        help="Independent-episode mode: return to home_joint_positions_rad "
+        "before each viz trial (opt-in 1.0 rate-gate benchmark)",
     )
     home.add_argument(
         "--no-reset-to-home",
         dest="reset_to_home",
         action="store_false",
-        help="Do not reset to home between trials (overrides YAML; useful for "
-        "path-dependent recovery testing)",
+        help="Sequential multi-target (default): home once at session start; "
+        "do not reset between trials (path-dependent recovery)",
     )
+    parser.set_defaults(reset_to_home=False)
     parser.add_argument(
         "--min-plan-ok-rate",
         type=float,
@@ -533,11 +556,14 @@ def run_viz(args: argparse.Namespace) -> int:
             print("Skipping articulation animation (--metrics-only or --visualize 0).")
             return 0
 
+        time_warp = max(1e-3, float(getattr(args, "time_warp", 1.0) or 1.0))
+        hold_s = max(0.02, float(args.hold_s) / time_warp)
         print(
             f"Visualizing {len(to_show)}/{len(trials)} trials "
-            f"(hold={args.hold_s}s; sphere red→green on EE contact "
+            f"(hold={hold_s:.3f}s wall, time_warp={time_warp:g}×; "
+            f"sphere red→green on EE contact "
             f"≤{TARGET_MARKER_CONTACT_DISTANCE_M * 1e3:.0f} mm; "
-            f"servo≤{workspace.max_joint_speed_deg_s:g}°/s)..."
+            f"servo≤{workspace.max_joint_speed_deg_s * time_warp:g}°/s)..."
         )
         timeline = omni.timeline.get_timeline_interface()
         timeline.play()
@@ -545,7 +571,15 @@ def run_viz(args: argparse.Namespace) -> int:
             simulation_app.update()
 
         articulation = _create_articulation(prim_path)
-        max_speed = float(workspace.max_joint_speed_rad_s)
+        # Time-warp accelerates playback for headless (no human watching). Cap
+        # stays at vendor max_joint_speed * warp; hold waits shrink by the same
+        # factor. Planning / contact geometry are unchanged.
+        max_speed = float(workspace.max_joint_speed_rad_s) * time_warp
+        if time_warp != 1.0:
+            _viz_log(
+                f"Phase 2 time-warp={time_warp:g}× "
+                f"(joint_speed→{max_speed:.2f} rad/s, hold_s→{hold_s:.3f}s)"
+            )
         plan_cfg = load_planning_config()
         gate = bool(plan_cfg.get("gate_motion_on_plan_failure", True))
         prefer_curobo = bool(plan_cfg.get("prefer_curobo", True))
@@ -573,14 +607,71 @@ def run_viz(args: argparse.Namespace) -> int:
         n_plan_ok = 0
         n_plan_fail = 0
         n_contact_green = 0
-        q_home = load_home_joint_positions_rad()
-        if args.reset_to_home is None:
-            reset_home = bool(plan_cfg.get("reset_to_home_before_each_trial", False))
+        n_via_ok = 0  # targets unreachable directly; needed standoff waypoint(s)
+        n_skip = 0  # overlapping targets excluded from the rate gate
+        n_skip_unreachable = 0  # dexterity prescreen: contact pose IK-infeasible
+        n_invalid_side = 0  # green flashed but settled contact was wrong-side
+        # Structured SKIPPED_UNREACHABLE RESULT lines for the end-of-test
+        # analyzer (spec.md Phase 2 SKIPPED_UNREACHABLE analysis requirement).
+        skipped_unreachable_log: list[str] = []
+        # Repeated-via diagnostic across consecutive episodes (math: EMA of via
+        # usage + consecutive-via streak). High ⇒ systematic bad approach angle.
+        via_pressure = ViaPressureTracker()
+        # Dexterity / dexterous-workspace gate (Pinocchio preferred). Provably
+        # infeasible pad-facing contact poses → SKIPPED_UNREACHABLE (excluded
+        # from the gate), never faked as OK.
+        prescreen_enabled = bool(
+            plan_cfg.get("plan_prescreen_dexterity_enabled", True)
+        )
+        prescreen_backend = str(plan_cfg.get("plan_prescreen_backend", "auto"))
+        prescreen_pos_tol = float(plan_cfg.get("plan_prescreen_position_tol_m", 0.006))
+        prescreen_ori_tol = float(
+            plan_cfg.get("plan_prescreen_orientation_tol_rad", 0.35)
+        )
+        prescreen_seeds = int(plan_cfg.get("plan_prescreen_seeds", 12))
+        # null → auto (True for Pinocchio, False for NumPy) inside contact_pose_is_dexterous.
+        _skip_raw = plan_cfg.get("plan_prescreen_skip_orientation_infeasible", None)
+        if _skip_raw is None or (
+            isinstance(_skip_raw, str) and _skip_raw.strip().lower() in ("", "null", "none", "auto")
+        ):
+            prescreen_skip_orientation = None
         else:
-            reset_home = bool(args.reset_to_home)
-        # Always start from home once before the trial loop. Per-trial reset
-        # defaults to True (YAML) for a reproducible 1.0 rate gate; use
-        # --no-reset-to-home for path-dependent recovery stress testing.
+            prescreen_skip_orientation = bool(_skip_raw)
+        region_margin_m = float(plan_cfg.get("dexterous_region_margin_m", 0.02))
+        cone_max_rad = float(plan_cfg.get("contact_orientation_cone_max_rad", 0.30))
+        cone_tilts = int(plan_cfg.get("contact_orientation_cone_tilts", 2))
+        cone_azimuths = int(plan_cfg.get("contact_orientation_cone_azimuths", 4))
+        if prescreen_enabled:
+            from residual_adaptive_ik.planning.dexterity import (
+                resolve_prescreen_backend,
+            )
+
+            _be = resolve_prescreen_backend(prescreen_backend)
+            _viz_log(
+                f"Phase 2 dexterity gate: backend={_be} "
+                f"skip_orientation={prescreen_skip_orientation} "
+                f"region_margin_m={region_margin_m:.3f}"
+            )
+
+        def _tally() -> str:
+            """One-line running status for real-time log monitoring.
+
+            Grep-friendly: ``STATUS ok=.. fail=.. via=.. green=.. skip=..
+            rate=..`` after every episode, so a tail of the log always shows
+            the current totals without waiting for the end-of-run summary.
+            """
+            rate_now = plan_ok_rate(n_plan_ok, n_plan_fail)
+            return (
+                f"STATUS ok={n_plan_ok} fail={n_plan_fail} via={n_via_ok} "
+                f"green={n_contact_green} skip={n_skip} rate={rate_now:.3f}"
+            )
+        q_home = load_home_joint_positions_rad()
+        # CLI / smoke default is sequential: --no-reset-to-home (False).
+        # Pass --reset-to-home only for the independent-episode 1.0 gate.
+        reset_home = bool(args.reset_to_home)
+        # Always move to home once before the trial loop (first episode).
+        # Per-trial home is opt-in only — required Spark GUI smoke must not
+        # reset between episodes (spec.md § Sequential multi-target).
         _viz_log(
             f"Phase 2: moving to home once before trials "
             f"q_home_rad={np.array2string(q_home, precision=3)}"
@@ -594,22 +685,28 @@ def run_viz(args: argparse.Namespace) -> int:
         if reset_home:
             _viz_log(
                 "Phase 2: ALSO reset to home before each trial "
-                "(YAML default / --reset-to-home)"
+                "(opt-in --reset-to-home / independent-episode gate)"
             )
         else:
             _viz_log(
-                "Phase 2: no per-trial home reset (path-dependent recovery testing)"
+                "Phase 2: no per-trial home reset "
+                "(default sequential multi-target / GUI smoke policy)"
             )
         for i, trial in enumerate(to_show):
             status = "OK" if trial.success else f"FAIL({trial.reason})"
-            print(
-                f"[{i + 1}/{len(to_show)}] trial={trial.index} {status} "
+            episode = f"[{i + 1}/{len(to_show)}]"
+            _viz_log(
+                f"{episode} EPISODE trial={trial.index} ik={status} "
                 f"pos_err_m={trial.position_error_m:.4e} "
-                f"xyz=({trial.target.position_m[0]:.3f},"
+                f"target=({trial.target.position_m[0]:.3f},"
                 f"{trial.target.position_m[1]:.3f},"
                 f"{trial.target.position_m[2]:.3f})"
             )
             if not trial.success:
+                _viz_log(
+                    f"{episode} RESULT IK_FAIL reason={trial.reason} | {_tally()}",
+                    level="warn",
+                )
                 continue
 
             target_xyz = np.asarray(trial.target.position_m, dtype=float).reshape(3)
@@ -656,6 +753,7 @@ def run_viz(args: argparse.Namespace) -> int:
                 capsule_sphere_collide(c, target_obstacle) for c in home_capsules
             )
             if in_keepout or capsule_hit:
+                n_skip += 1
                 _viz_log(
                     f"  SKIP_OVERLAPPING_TARGET: marker at "
                     f"({target_xyz[0]:.3f},{target_xyz[1]:.3f},{target_xyz[2]:.3f}) "
@@ -663,7 +761,50 @@ def run_viz(args: argparse.Namespace) -> int:
                     f"capsule={capsule_hit} — not counted",
                     level="warn",
                 )
+                _viz_log(
+                    f"{episode} RESULT SKIPPED overlapping_target | {_tally()}",
+                    level="warn",
+                )
                 continue
+
+            # Dexterity prescreen (recommended step #1): deterministically test
+            # whether the oriented pad-facing contact pose is IK-reachable at all
+            # (classical DLS IK, both tool-axis signs, cone orientations, several
+            # seeds). Provably-infeasible targets are sampler optimism, not
+            # planner faults — report SKIPPED_UNREACHABLE and exclude from the
+            # rate gate. STRICT so it does not mask genuine PLAN_FAILs.
+            if prescreen_enabled:
+                dex = contact_pose_is_dexterous(
+                    target_xyz,
+                    float(TARGET_MARKER_RADIUS_M),
+                    cone_max_rad=cone_max_rad,
+                    n_tilts=cone_tilts,
+                    n_azimuths=cone_azimuths,
+                    position_tol_m=prescreen_pos_tol,
+                    orientation_tol_rad=prescreen_ori_tol,
+                    n_seeds=prescreen_seeds,
+                    region_margin_m=region_margin_m,
+                    skip_orientation_infeasible=prescreen_skip_orientation,
+                    backend=prescreen_backend,
+                )
+                if not dex.feasible:
+                    n_skip += 1
+                    n_skip_unreachable += 1
+                    result_line = (
+                        f"{episode} RESULT SKIPPED_UNREACHABLE "
+                        f"{dex.as_log_tokens()} "
+                        f"target=({target_xyz[0]:.3f},{target_xyz[1]:.3f},"
+                        f"{target_xyz[2]:.3f}) | {_tally()}"
+                    )
+                    skipped_unreachable_log.append(result_line)
+                    _viz_log(
+                        f"  DEXTERITY_PRESCREEN: contact pose infeasible "
+                        f"({dex.classification}; {dex.note}; region={dex.region_reason})"
+                        " — excluded from rate gate, not a planner failure",
+                        level="warn",
+                    )
+                    _viz_log(result_line, level="warn")
+                    continue
 
             marker_committed = False
             contacted = False
@@ -673,19 +814,91 @@ def run_viz(args: argparse.Namespace) -> int:
             approach_from_m = np.asarray(
                 forward_kinematics(q_now).position_m, dtype=float
             ).reshape(3).copy()
+            # Per-episode contact diagnostics. ``logged_reasons`` de-dupes
+            # servo-tick rejection spam; ``nearest`` keeps the closest sample so
+            # a PLAN_FAIL(no_contact) can report *why* (through / side / axis).
+            contact_diag = {
+                "logged_reasons": set(),
+                "nearest_dist": float("inf"),
+                "nearest": None,
+            }
+            # Detect the "EE already close to target" regime up front. When the
+            # tip starts within a short shell of the surface, the oriented
+            # approach frequently needs many standoff vias (it must first back
+            # off to a pad-facing standoff, then nudge in). Flag it so a high
+            # retry count is attributable rather than mysterious.
+            tip_start_dist = float(np.linalg.norm(approach_from_m - target_xyz))
+            ee_close_shell_m = float(TARGET_MARKER_RADIUS_M) + 0.05
+            ee_close_start = tip_start_dist <= ee_close_shell_m
+            if ee_close_start:
+                _viz_log(
+                    f"  EE_CLOSE: tip starts {tip_start_dist * 1e3:.0f}mm from "
+                    f"center (≤{ee_close_shell_m * 1e3:.0f}mm) — high via/retry "
+                    "count expected (must back off to pad-facing standoff first)",
+                    level="warn",
+                )
 
             def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
                 nonlocal contacted
                 if contacted:
                     return
-                ee = forward_kinematics(q_rad).position_m
-                if ee_contacts_target(
-                    ee, _tgt, approach_from_m=approach_from_m
-                ):
+                pose = forward_kinematics(q_rad)
+                ee = pose.position_m
+                # Honest tip-face gate: reject "wrong side of the EE" (tool axis
+                # not collinear with the approach) and "through the marker" (tip
+                # crossed to the far hemisphere), in addition to lateral grazes.
+                ok, reason, metrics = classify_tip_contact(
+                    ee,
+                    _tgt,
+                    approach_from_m=approach_from_m,
+                    ee_quaternion_wxyz=pose.quaternion_wxyz,
+                )
+                if metrics["dist_m"] < contact_diag["nearest_dist"]:
+                    contact_diag["nearest_dist"] = metrics["dist_m"]
+                    contact_diag["nearest"] = (reason, dict(metrics))
+                if ok:
                     contacted = True
                     _set_target_marker_color(stage, state=MarkerVisualState.CONTACT)
                     _viz_log(
-                        "  MARKER_CONTACT: tip-face center on sphere → green"
+                        "  MARKER_CONTACT: tip-face center on sphere → green "
+                        f"(dist={metrics['dist_m'] * 1e3:.1f}mm "
+                        f"pen={metrics['penetration_m'] * 1e3:.1f}mm "
+                        f"lat={metrics['lateral_m'] * 1e3:.1f}mm "
+                        f"axis_in={np.degrees(metrics['axis_in_err_rad']):.0f}deg "
+                        f"axis_out={np.degrees(metrics['axis_out_err_rad']):.0f}deg)"
+                    )
+                    return
+                # Near-miss instrumentation: log each distinct failure mode once
+                # per episode when the tip is actually near the surface.
+                if (
+                    reason != "no_contact"
+                    and reason not in contact_diag["logged_reasons"]
+                ):
+                    contact_diag["logged_reasons"].add(reason)
+                    label = {
+                        "through": (
+                            "MARKER_THROUGH: tip crossed to far hemisphere "
+                            "(passed through marker) — not green"
+                        ),
+                        "side_graze": (
+                            "MARKER_SIDE_GRAZE: contact off the tip-face pad "
+                            "(lateral) — not green"
+                        ),
+                        "wrong_side_axis": (
+                            "MARKER_WRONG_SIDE: flange +Z not aligned with the "
+                            "outward approach ray — contact on the side/barrel "
+                            "or flipped/back onto the marker, not the front "
+                            "pad — not green"
+                        ),
+                    }.get(reason, f"MARKER_REJECT:{reason}")
+                    _viz_log(
+                        f"  {label} "
+                        f"(dist={metrics['dist_m'] * 1e3:.1f}mm "
+                        f"pen={metrics['penetration_m'] * 1e3:.1f}mm "
+                        f"lat={metrics['lateral_m'] * 1e3:.1f}mm "
+                        f"axis_in={np.degrees(metrics['axis_in_err_rad']):.0f}deg "
+                        f"axis_out={np.degrees(metrics['axis_out_err_rad']):.0f}deg)",
+                        level="warn",
                     )
 
             def _execute_waypoints(waypoints_rad: np.ndarray, dt_s: float) -> None:
@@ -731,6 +944,10 @@ def run_viz(args: argparse.Namespace) -> int:
             executable = may_execute_motion(
                 plan_result_is_executable(traj), gate_on_failure=gate
             )
+            used_via = (
+                "strategy=via_standoff" in str(traj.message)
+                or "strategy=via_contact" in str(traj.message)
+            )
             if executable:
                 n_plan_ok += 1
                 if not marker_committed:
@@ -743,6 +960,36 @@ def run_viz(args: argparse.Namespace) -> int:
                     f"  PLAN_OK backend={traj.backend} T={traj.waypoints_rad.shape[0]} "
                     f"dt_s={traj.dt_s:.4f} msg={traj.message}"
                 )
+                if used_via:
+                    # Surface in the Isaac Sim GUI (Window → Console shows
+                    # carb.log_warn in yellow): the direct plan failed and the
+                    # target was only reachable through intermediate standoff
+                    # waypoint(s) — worth operator attention even on success.
+                    n_via_ok += 1
+                    # Success messages carry a `via_attempts=N` field (failed
+                    # ones record `via1_` markers — recovery_via_attempts_...).
+                    via_m = re.search(r"via_attempts=(\d+)", str(traj.message))
+                    via_n = via_m.group(1) if via_m else "?"
+                    _viz_log(
+                        f"  VIA_WAYPOINT_USED: target unreachable by direct "
+                        f"plan — reached via intermediate standoff waypoint(s) "
+                        f"(via_attempts={via_n})",
+                        level="warn",
+                    )
+                    # Attribute a high retry count to the EE-close regime so it
+                    # is diagnosable (see EE_CLOSE above), not mysterious.
+                    try:
+                        via_i = int(via_n)
+                    except (TypeError, ValueError):
+                        via_i = 0
+                    if ee_close_start and via_i >= HIGH_RETRY_VIA_THRESHOLD:
+                        _viz_log(
+                            "  HIGH_RETRY_WHEN_CLOSE: EE started near the target "
+                            f"({tip_start_dist * 1e3:.0f}mm) and needed "
+                            f"{via_i} standoff vias (≥{HIGH_RETRY_VIA_THRESHOLD}) "
+                            "— back-off-then-approach dominates the recovery",
+                            level="warn",
+                        )
             else:
                 n_plan_fail += 1
                 # Yellow only after the recovery timeout budget is exhausted.
@@ -753,6 +1000,14 @@ def run_viz(args: argparse.Namespace) -> int:
                     f"msg={traj.message} (gate={gate}; marker=yellow after timeout)",
                     level="warn",
                 )
+                if ee_close_start and vias >= HIGH_RETRY_VIA_THRESHOLD:
+                    _viz_log(
+                        "  HIGH_RETRY_WHEN_CLOSE: EE started near the target "
+                        f"({tip_start_dist * 1e3:.0f}mm) and burned {vias} "
+                        f"standoff vias (≥{HIGH_RETRY_VIA_THRESHOLD}) before "
+                        "timeout — back-off-then-approach dominates the recovery",
+                        level="warn",
+                    )
                 if vias < 1:
                     _viz_log(
                         "  RECOVERY_AUDIT: no via1_ attempt in fail message "
@@ -773,12 +1028,45 @@ def run_viz(args: argparse.Namespace) -> int:
                 except Exception:
                     pass
                 _viz_log("  GATED_NO_MOTION: holding pose (plan rejected)", level="warn")
-                t_gate = time.monotonic() + max(0.05, float(args.hold_s))
+                _viz_log(
+                    f"{episode} RESULT PLAN_FAIL via_attempts={vias} | {_tally()}",
+                    level="warn",
+                )
+                t_gate = time.monotonic() + max(0.05, float(hold_s))
                 while time.monotonic() < t_gate and simulation_app.is_running():
                     simulation_app.update()
                 if not simulation_app.is_running():
                     break
                 continue
+
+            # After recovery / contact legs, re-anchor the tip-face gate on the
+            # radial through the current tip (oriented contact axis). Using a
+            # stale via-start approach ray falsely rejects tip-face hits after
+            # multi-via recovery.
+            try:
+                from residual_adaptive_ik.planning.contact_geometry import (
+                    build_sphere_contact_approach,
+                )
+
+                q_gate = _get_joint_positions(articulation)
+                tip_gate = np.asarray(
+                    forward_kinematics(q_gate).position_m, dtype=float
+                ).reshape(3)
+                ca_gate = build_sphere_contact_approach(
+                    tip_gate,
+                    target_xyz,
+                    float(TARGET_MARKER_RADIUS_M),
+                    standoff_m=0.02,
+                    nudge_m=0.008,
+                    current_quaternion_wxyz=forward_kinematics(
+                        q_gate
+                    ).quaternion_wxyz,
+                )
+                approach_from_m = np.asarray(
+                    ca_gate.standoff_position_m, dtype=float
+                ).reshape(3).copy()
+            except Exception:
+                pass
 
             # Remaining waypoints (hold row if already_executed during recovery).
             if (
@@ -801,7 +1089,7 @@ def run_viz(args: argparse.Namespace) -> int:
                     _on_step(q_hold)
                 except Exception:
                     pass
-            t_end = time.monotonic() + max(0.05, float(args.hold_s))
+            t_end = time.monotonic() + max(0.05, float(hold_s))
             while time.monotonic() < t_end and simulation_app.is_running():
                 if not contacted:
                     try:
@@ -811,24 +1099,52 @@ def run_viz(args: argparse.Namespace) -> int:
                         pass
                 simulation_app.update()
             if not contacted:
-                # Contact nudge: PD servo may stop a few mm short of the sphere.
-                # Drive toward the classical IK tip goal (on the surface by
-                # construction) and re-check tip-face contact.
-                _viz_log("  CONTACT_NUDGE: refining toward IK tip on sphere surface")
-                approach_from_m = np.asarray(
-                    forward_kinematics(
-                        _get_joint_positions(articulation)
-                    ).position_m,
-                    dtype=float,
-                ).reshape(3).copy()
-                _move_joints_at_hardware_speed(
-                    articulation,
-                    trial.q_sol,
-                    simulation_app,
-                    max_speed_rad_s=max_speed,
-                    on_step=_on_step,
+                # Short axial refine toward the pierce point (surface), not the
+                # marker center. Keeps tip-face contact without reintroducing
+                # side/flange immersion from a center-drive to trial.q_sol.
+                from isaac_sim.target_marker import tip_face_pierce_point_m
+
+                q_now = _get_joint_positions(articulation)
+                tip_now = np.asarray(
+                    forward_kinematics(q_now).position_m, dtype=float
+                ).reshape(3)
+                pierce = tip_face_pierce_point_m(tip_now, target_xyz)
+                tip_dist = float(np.linalg.norm(tip_now - target_xyz))
+                _viz_log(
+                    "  CONTACT_HOLD: axial refine to pierce "
+                    f"(tip_to_center={tip_dist:.4f} m, "
+                    f"tip_to_pierce={float(np.linalg.norm(tip_now - pierce)):.4f} m)"
                 )
-                t_nudge = time.monotonic() + max(0.05, float(args.hold_s))
+                # Gate contact along the refine axis (standoff → center).
+                approach_from_m = tip_now.copy()
+                try:
+                    from residual_adaptive_ik.kinematics.fk import Pose
+                    from residual_adaptive_ik.kinematics.numerical_ik import (
+                        DampedLeastSquaresIK,
+                    )
+
+                    ik = DampedLeastSquaresIK()
+                    quat_now = forward_kinematics(q_now).quaternion_wxyz
+                    res = ik.solve(
+                        Pose(position_m=pierce, quaternion_wxyz=quat_now),
+                        seed_q=q_now,
+                    )
+                    if bool(getattr(res, "success", False)):
+                        _move_joints_at_hardware_speed(
+                            articulation,
+                            res.q,
+                            simulation_app,
+                            max_speed_rad_s=max_speed,
+                            on_step=_on_step,
+                        )
+                    else:
+                        _viz_log(
+                            "  CONTACT_HOLD: axial IK did not converge "
+                            f"({getattr(res, 'reason', 'unknown')})"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    _viz_log(f"  CONTACT_HOLD: axial IK skipped ({exc})")
+                t_nudge = time.monotonic() + max(0.15, float(hold_s))
                 while time.monotonic() < t_nudge and simulation_app.is_running():
                     if not contacted:
                         try:
@@ -836,24 +1152,143 @@ def run_viz(args: argparse.Namespace) -> int:
                         except Exception:
                             pass
                     simulation_app.update()
+            # Authoritative final-pose contact check. The marker may have
+            # flashed green on a transient sample during motion; the **settled**
+            # pose must be a valid *front* tip-face contact. A wrong-side /
+            # inside-EE / through settled contact is reported as a FAILURE even
+            # though it turned green (independent monitor, per operator request).
+            final_ok = bool(contacted)
             if contacted:
+                try:
+                    p_fin = forward_kinematics(_get_joint_positions(articulation))
+                    fok, freason, fm = classify_tip_contact(
+                        np.asarray(p_fin.position_m, dtype=float).reshape(3),
+                        target_xyz,
+                        approach_from_m=approach_from_m,
+                        ee_quaternion_wxyz=p_fin.quaternion_wxyz,
+                    )
+                    if not fok:
+                        final_ok = False
+                        n_invalid_side += 1
+                        _set_target_marker_color(
+                            stage, state=MarkerVisualState.PLAN_FAIL
+                        )
+                        _viz_log(
+                            "  CONTACT_INVALID_SIDE: marker turned green during "
+                            "motion, but the settled contact is invalid "
+                            f"(reason={freason}, "
+                            f"axis_in={np.degrees(fm['axis_in_err_rad']):.0f}deg "
+                            f"axis_out={np.degrees(fm['axis_out_err_rad']):.0f}deg "
+                            f"pen={fm['penetration_m'] * 1e3:.1f}mm "
+                            f"lat={fm['lateral_m'] * 1e3:.1f}mm) — reported as "
+                            "PLAN_FAIL despite the green flash",
+                            level="error",
+                        )
+                except Exception:
+                    pass
+
+            if final_ok:
                 n_contact_green += 1
+                strat = "direct"
+                if "via_contact" in str(traj.message):
+                    strat = "via_contact"
+                elif used_via:
+                    strat = "via_standoff"
+                _viz_log(
+                    f"{episode} RESULT PLAN_OK "
+                    f"strategy={strat} "
+                    f"contact=green | {_tally()}",
+                    level="warn" if used_via else "info",
+                )
             else:
-                # Reclassify: PLAN_OK without surface contact is a failure.
+                # Reclassify: PLAN_OK without a valid settled contact is a failure.
                 n_plan_ok -= 1
                 n_plan_fail += 1
                 _set_target_marker_color(stage, state=MarkerVisualState.PLAN_FAIL)
+                if contacted:
+                    # Invalid-side override (already logged CONTACT_INVALID_SIDE).
+                    _viz_log(
+                        f"{episode} RESULT PLAN_FAIL(invalid_side) | {_tally()}",
+                        level="warn",
+                    )
+                else:
+                    try:
+                        tip_fail = np.asarray(
+                            forward_kinematics(
+                                _get_joint_positions(articulation)
+                            ).position_m,
+                            dtype=float,
+                        ).reshape(3)
+                        d_fail = float(np.linalg.norm(tip_fail - target_xyz))
+                        # Report the *nearest* sample's failure mode (through /
+                        # side_graze / wrong_side_axis / no_contact) so the
+                        # operator sees why no valid tip-face contact occurred.
+                        near = contact_diag.get("nearest")
+                        near_reason = near[0] if near else "no_contact"
+                        near_m = near[1] if near else {}
+                        _viz_log(
+                            "  MARKER_NO_CONTACT: PLAN_OK but tip never made a "
+                            f"valid tip-face contact (nearest_reason={near_reason}, "
+                            f"tip_to_center={d_fail:.4f} m, "
+                            f"need≤{TARGET_MARKER_CONTACT_DISTANCE_M + TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M:.4f} m; "
+                            f"nearest_dist={near_m.get('dist_m', float('nan')) * 1e3:.1f}mm "
+                            f"pen={near_m.get('penetration_m', float('nan')) * 1e3:.1f}mm "
+                            f"axis_in={np.degrees(near_m.get('axis_in_err_rad', float('nan'))):.0f}deg) "
+                            "→ reclassified as PLAN_FAIL",
+                            level="warn",
+                        )
+                    except Exception:
+                        _viz_log(
+                            "  MARKER_NO_CONTACT: PLAN_OK but tip never reached "
+                            "sphere surface → reclassified as PLAN_FAIL",
+                            level="warn",
+                        )
+                    _viz_log(
+                        f"{episode} RESULT PLAN_FAIL(no_contact) | {_tally()}",
+                        level="warn",
+                    )
+
+            # Repeated-via pressure across consecutive episodes (math metric).
+            # Prefer the operator-facing recovery via count (matches the RESULT
+            # line); fall back to the PLAN_OK ``via_attempts=N`` token.
+            episode_via_attempts = recovery_via_attempts_in_message(traj.message)
+            if episode_via_attempts < 1:
+                m_via = re.search(r"via_attempts=(\d+)", str(traj.message))
+                episode_via_attempts = int(m_via.group(1)) if m_via else 0
+            vp = via_pressure.update(episode_via_attempts)
+            _viz_log(
+                f"  VIA_PRESSURE: this_via={episode_via_attempts} "
+                f"ema_usage={vp['ema_usage']:.2f} "
+                f"ema_attempts={vp['ema_attempts']:.1f} streak={vp['streak']}"
+            )
+            if vp["high"]:
                 _viz_log(
-                    "  MARKER_NO_CONTACT: PLAN_OK but tip never reached sphere "
-                    "surface → reclassified as PLAN_FAIL",
+                    "  VIA_PRESSURE_HIGH: vias needed across consecutive episodes "
+                    f"(ema_usage={vp['ema_usage']:.2f}≥"
+                    f"{via_pressure.ema_usage_threshold}, streak={vp['streak']}≥"
+                    f"{via_pressure.streak_threshold}) — approaches are likely "
+                    "systematically wrong-sided; check contact orientation",
                     level="warn",
                 )
+
             if not simulation_app.is_running():
+                _viz_log(
+                    "  GUI_STOP: simulation_app stopped; ending trial loop early",
+                    level="warn",
+                )
                 break
 
         metrics["phase2_plan_ok"] = n_plan_ok
         metrics["phase2_plan_fail"] = n_plan_fail
         metrics["phase2_marker_contact_green"] = n_contact_green
+        metrics["phase2_via_waypoint_ok"] = n_via_ok
+        metrics["phase2_skipped_targets"] = n_skip
+        metrics["phase2_skipped_unreachable"] = n_skip_unreachable
+        metrics["phase2_invalid_side_contacts"] = n_invalid_side
+        metrics["phase2_via_pressure_ema_usage"] = float(
+            via_pressure._ema_usage or 0.0
+        )
+        metrics["phase2_via_pressure_max_streak"] = int(via_pressure._max_streak)
         metrics["phase2_backend"] = (
             "curobo" if curobo_planner is not None else "numpy_lerp"
         )
@@ -868,11 +1303,13 @@ def run_viz(args: argparse.Namespace) -> int:
             min_rate = float(plan_cfg.get("min_plan_ok_rate", 0.25))
         metrics["phase2_min_plan_ok_rate"] = min_rate
         write_json(json_out, metrics)
-        print(
+        _viz_log(
             f"Phase 2 planning summary: ok={n_plan_ok} fail={n_plan_fail} "
+            f"via={n_via_ok} skip={n_skip} skip_unreachable={n_skip_unreachable} "
             f"rate={rate:.3f} min_required={min_rate:.3f} "
             f"marker_green={n_contact_green} "
-            f"backend={metrics['phase2_backend']}"
+            f"backend={metrics['phase2_backend']}",
+            level="warn" if (n_plan_fail > 0 or n_via_ok > 0) else "info",
         )
         gate_ok = meets_min_plan_ok_rate(n_plan_ok, n_plan_fail, min_rate=min_rate)
         if not gate_ok:
@@ -881,6 +1318,20 @@ def run_viz(args: argparse.Namespace) -> int:
                 f"({n_plan_ok} ok / {n_plan_ok + n_plan_fail} planned)",
                 level="error",
             )
+
+        # End-of-test SKIPPED_UNREACHABLE analysis (spec.md Phase 2 requirement):
+        # speculate why each target was skipped and, for Dexterous-Region cases,
+        # a via that would support a deterministic IK. Print to the prompt output
+        # AND append to STATUS.md.
+        try:
+            analyze_and_report(
+                "\n".join(skipped_unreachable_log),
+                status_path=REPO_ROOT / "STATUS.md",
+                total_planned=n_plan_ok + n_plan_fail,
+                print_fn=lambda s: _viz_log(s, level="warn"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _viz_log(f"SKIPPED_UNREACHABLE analysis failed: {exc}", level="warn")
 
         print("Phase 1 metrics + visualization complete. Close Isaac Sim or Ctrl+C.")
         if not args.headless and not args.auto_exit:

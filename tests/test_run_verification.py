@@ -18,6 +18,11 @@ def test_run_verification_script_exists_and_documents_modes():
     assert "spark_preflight" in text
     assert "ISAAC_VIZ_SMOKE_HEADLESS_VISUALIZE" in text or "ISAAC_VIZ_SMOKE_VISUALIZE" in text
     assert "ISAAC_VIZ_SMOKE_GUI_VISUALIZE" in text
+    assert "ISAAC_VIZ_SMOKE_TIME_WARP" in text
+    # Headless must run full planning (not metrics-only / visualize=0).
+    assert "full planning" in text.lower() or "Full Phase 2" in (
+        REPO / "scripts" / "host" / "smoke_isaac_viz.sh"
+    ).read_text(encoding="utf-8")
     assert "install_curobo.sh" in text
     assert (REPO / "scripts" / "run_phase2_geometry.sh").is_file()
     assert (REPO / "scripts" / "run_phase3_supervised.sh").is_file()

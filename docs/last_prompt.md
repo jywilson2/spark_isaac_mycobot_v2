@@ -1,5 +1,180 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-17 09:45 -07:00
+Change the configuration of headless (non GUI) testing to include everything the GUI testing does, except the visualization. If it makes sense to do so, accelerate the time warp factor since no human is actually viewing the results when headless mode is active.
+
+Implement the dexterous-workspace gate using the library you think is best.
+
+Iterate using GUI testing to allow me to check-in on the result. If all tests pass, commit to wip_phase3, push to github, rebase on main, and push to github. Remain on the wip_phase3 branch.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-17 09:36 -07:00
+When you say cuRobo seeds, what does this mean? What is a "seed" in this context?
+## END
+
+
+## BEGIN: 2026-07-17 09:27 -07:00
+Is the connection to you working?
+## END
+
+
+## BEGIN: 2026-07-17 07:49 -07:00
+Why do the headless tests results produce fewer failures than the GUI test?
+
+Would it make sense to incorporate (created from scratch or by using an existing library) a standalone replacement for cuRobo IK that is implenented with a deep learning network of some type? Or would this be a step backward in deterministic results? Are there better IK libraries that we should consider?
+
+Implement all three recommended next steps.
+
+Add this requirement to spec.md: At the end of each test analyze the logs and look for occurences of "SKIPPED_UNREACHABLE". Speculate on why this was the result for a particular episode. If the target was still within the "Dexterous Region" then speculate on a different approach to generate a via that supports a deterministic IK calculation and include in the prompt output and in STATUS.md .
+## END
+
+
+## BEGIN: 2026-07-17 00:07 -07:00
+Rerun a long GUI test and verify that a strict-1.0 pass rate.
+## END
+
+## BEGIN: 2026-07-16 23:51 -07:00
+On the second point, do not exclude sphere-overlaps-at-start targets. Can you enhance the code to generate a via that repositions the arm such that an IK calculation is more likely to succeed?
+## END
+
+## BEGIN: 2026-07-16 23:06 -07:00
+The target is approached from the wrong side of the EE, causing the need for an alternate approach using a via.
+
+When the target collides with the side of the EE, it makes contact with the surface of the EE from the inside of the EE surface, and incorrectly reports success.
+
+Can you monitor for this condition and report a failure, even if the target turns green? I would recommend formulating a mathematical expression that evaluates the repeated need for vias in consecutive episodes.
+
+Use the strict 1.0 gate on a short GUI test, and iterate until targets are approached from the correct angle and contact made from the correct side of the EE.
+## END
+
+## BEGIN: 2026-07-16 22:05 -07:00
+The IK path frequently approaches the target from the wrong side of the EE. It occasionally moves through the red sphere and records this as a success (color changes to green). Also, when the EE is close to the target the number of retries is consistently high.
+
+Instrument the code to detect these conditions.
+
+Iterate until the intended code changes listed below are successful:
+
+- Approach-axis pose goal — plan the final segment along the EE tip normal (tool +Z) into the pierce point, with orientation constrained so the pad faces the sphere.
+
+- Keep tip spheres on until a short final contact nudge
+## END
+
+## BEGIN: 2026-07-16 21:43 -07:00
+The problem does not appear resolved.  I would reduce the duration of the test to save time, since the error is apparent after the first few tests.
+
+Continue to iterate until the GUI test is passes a few tests, then extend to a longer number of tests when the problem appears resolved.
+
+If you feel the issue is resolved, commit changes to wip_phase3, rebase onto main, and push to main on the remote repo.
+## END
+
+## BEGIN: 2026-07-16 21:38 -07:00
+The GUI test is currently running, but does not appear correct. The number of via's required for each episode is consistently high.
+## END
+
+## BEGIN: 2026-07-16 21:32 -07:00
+Regarding Phase 3, can you explain the difference between "IK + oracle residual" and "IK + MLP residual"?
+
+Also, how is "SAC" used in Phase 4?
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 21:22 -07:00
+Explore /workspaces/isaac_ros-dev/src/spark_isaac_mycobot_v2 for how Phase 2 contact planning works so we can implement:
+
+1. Approach-axis pose goal: plan final segment along EE tip normal (tool +Z) into pierce point with orientation constrained so pad faces sphere.
+2. Keep tip spheres ON until a short final contact nudge: collision-free approach to a standoff, then short axial move with tip spheres omitted.
+
+Focus on these files and related helpers:
+- src/residual_adaptive_ik/planning/recovery.py
+- src/residual_adaptive_ik/planning/curobo_planner.py
+- isaac_sim/run_ik_viz.py
+- isaac_sim/target_marker.py
+- configs/planning/collision.yaml
+- Any FK that returns orientation / tip frame
+- Existing omit_tip_links / contact_planner / plan_to_pose / surface approach logic
+
+Return:
+1. Current contact-leg flow (direct + via) with key function names and what omit_tip_links does
+2. Whether FK/pose API already exposes tip orientation / tool frame
+3. Best insertion points for standoff-then-axial-nudge and tool-axis approach
+4. Config knobs that should be added
+5. Existing tests that will need updates
+6. Concrete implementation sketch (files + functions to change)
+
+Be thorough on recovery.py and curobo_planner.py plan_to_pose / plan_to_joint_goal contact paths.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 21:16 -07:00
+Why is the test running repeatedly?
+
+Also, I still see the side of the EE intersect the red sphere. Is it possible to plan a trajectory that allows the EE to only make contact with the sphere in the middle of the EE circular contact area?
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 21:15 -07:00
+Stream the logs from the running test.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 21:09 -07:00
+What does this log output mean: "RESULT SKIPPED overlapping_target"
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 20:56 -07:00
+When the current target is unreachable and required the use of an intermediate waypoint, please indicate so with a warning message in the IsaacSim GUI.
+
+Format the GUI test logs to make issues easier to spot and overall status more easily monitored in real-time.
+
+Run the GUI test using the above changes.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 20:54 -07:00
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+## BEGIN: 2026-07-16 20:53 -07:00
+Stream the log files for monitoring GUI test progress.
+## END
+
+## BEGIN: 2026-07-16 20:48 -07:00
+Stop the current test. Update spec.md to clearly specify that the GUI test should only reset to home in the first episode. Make the CLI default "--no-reset-to-home" to true.
+
+Rerun and validate the GUI test after makiung the above changes.
+## END
+
+## BEGIN: 2026-07-16 20:44 -07:00
+Why is the GUI test for wip_phase3 always returning to the home position for each episode?
+## END
+
+## BEGIN: 2026-07-16 20:41 -07:00
+Execute the GUI test for wip_phase3.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 20:40 -07:00
+Do the changes provided in wip_phase2 exist in the remote main branch?
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-16 20:39 -07:00
+Verify that wip_phase2 and wip_phase3 have both been rebased onto main.
+## END
+
+# Old prompts:
+
 ## BEGIN: 2026-07-16 08:13 -07:00
 I will eventually want to move to real hardware. Do you have any suggestions on how I can test the features developed in simulation when using a real MyCobot 280?
 ## END

@@ -458,14 +458,119 @@ planner replace `q_final = q_ik + clamp(Δq)`.
 
 | Mode | Flag / config | Role |
 |------|---------------|------|
-| **Independent episodes** | `reset_to_home_before_each_trial: true` / `--reset-to-home` | Benchmark convenience: known collision-free start; used for the strict 1.0 rate gate |
-| **Sequential multi-target** | `reset_to_home_before_each_trial: false` / `--no-reset-to-home` | Operational use case: each trial starts from the previous goal (or last safe pose); home is applied **once** at session start only |
+| **Sequential multi-target (default)** | `reset_to_home_before_each_trial: false` / `--no-reset-to-home` (CLI default) | Operational + **required Spark GUI smoke**: each trial starts from the previous goal (or last safe pose); home is applied **once at session start / first episode only** |
+| **Independent episodes (opt-in)** | `reset_to_home_before_each_trial: true` / `--reset-to-home` | Benchmark convenience: known collision-free start; optional for a strict independent-trial 1.0 rate gate — **not** the GUI smoke default |
+
+### Tip-face contact planning (oriented approach + axial nudge)
+
+**Problem.** Omitting tip/flange collision spheres for an entire contact path lets the EE **side** sweep through the volumetric marker while the tip still lands on the surface.
+
+**Requirement (default when `contact_axis_enabled: true`):**
+
+1. **Approach with tip spheres ON** to an oriented standoff along the sphere normal (`contact_standoff_m` outside the surface). Tool +Z faces the sphere (pad toward marker).
+2. **Omit tip spheres only** for a **bounded axial nudge** from that standoff onto the pierce point (`contact_nudge_m` ≤ `contact_nudge_max_m`). After a recovery via, the tip-omit segment is capped by `contact_via_nudge_max_m` — kept **short** (≈ `contact_nudge_max_m`) on purpose: a long tip-omit move with spheres off lets the EE barrel sweep **through** the marker. Larger start→pierce gaps must be closed by a spheres-ON approach to the standoff, then only the short nudge (long tip-omit is refused → `contact_nudge_direct_refused`).
+3. Green contact requires tip-face center on the pierce **and** tool-axis alignment with the approach ray.
+
+**Honest contact gate + detection (`classify_tip_contact`).** The red→green
+gate classifies each EE tip sample and turns green **only** for a valid
+tip-face contact. It explicitly detects and rejects the failure modes that were
+previously counted as success:
+
+- `through` — the tip crossed to the **far hemisphere** along the approach axis (signed axial position from center > `TARGET_MARKER_THROUGH_PENETRATION_TOL_M`). "Moved through the sphere" is never green.
+- `side_graze` — contact off the tip-face pad (lateral offset > `TARGET_MARKER_TIP_FACE_RADIUS_M`).
+- `wrong_side_axis` — the flange +Z is not aligned with the **outward** normal. The check is now **signed** (`axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ 35°, *not* folded), so it rejects both the **side/barrel** contact (`axis_out ≈ 90°`) and the **flipped/back** contact where +Z points toward the center (`axis_out ≈ 180°`). The flipped case is the "marker turns green but touches the EE from the inside/back" defect the earlier folded check accepted. **Sign convention (empirical):** commanding the contact pose with +Z inward makes cuRobo `IK_FAIL` (0 green); the reachable, visually-correct contacts measure `axis_out ≈ 0–7°`, so the planner commands +Z along the outward normal and the gate requires `axis_out` small. `contact_geometry`'s +Z is opposite the URDF/FK tool +Z — confirm against the physical flange before hardware.
+
+**Authoritative final-pose check.** The live green during motion is visual only; after the hold the **settled** pose is re-classified, and a green that settles wrong-side/through is overridden to `CONTACT_INVALID_SIDE` → `PLAN_FAIL(invalid_side)`. A transient green flash never counts as success.
+
+**Repeated-via pressure (math).** `ViaPressureTracker` quantifies the repeated need for vias across consecutive episodes: via-usage EMA `E_i = α·u_i + (1−α)·E_{i−1}` with `u_i = 1[via_i ≥ 1]` and `α = 0.5`, a via-count EMA `A_i`, and a consecutive-via streak `S_i`. `VIA_PRESSURE_HIGH` fires when `E_i ≥ 0.6` **and** `S_i ≥ 3` — a systematic wrong-sided-approach signal (unit-tested in `tests/test_viz_plan_fail_closed.py`).
+
+The viz instruments these as `MARKER_CONTACT / MARKER_THROUGH / MARKER_SIDE_GRAZE / MARKER_WRONG_SIDE` (with measured dist/penetration/lateral/`axis_in`/`axis_out`), `CONTACT_INVALID_SIDE`, `VIA_PRESSURE` / `VIA_PRESSURE_HIGH`, plus `EE_CLOSE` (tip starts within a short shell of the surface) and `HIGH_RETRY_WHEN_CLOSE` (a close start that needs ≥ `HIGH_RETRY_VIA_THRESHOLD` standoff vias — the back-off-then-approach cost). `MARKER_NO_CONTACT` reports the nearest sample's reason so a reclassified PLAN_FAIL is attributable.
+
+4. Viz must **not** drive toward the marker-center IK solution (`trial.q_sol`) after PLAN_OK — that reintroduces side immersion. The `CONTACT_HOLD` step performs a short **axial refine to the pierce** point (near surface), not a center-drive.
+
+See `classify_tip_contact` in `isaac_sim/target_marker.py`, `planning/contact_geometry.py`, `try_oriented_tip_face_contact` in `planning/recovery.py`, and `configs/planning/collision.yaml`.
+
+### Dexterous-workspace prescreen + orientation cone + planning budget
+
+A long strict-1.0 GUI run (STATUS.md, 2026-07-17) showed ~30% of *uniformly
+sampled* targets fail the oriented contact plan — not false successes or planner
+bugs, but **orientation-feasibility limits near the reach envelope**. Three
+complementary mechanisms address this honestly:
+
+1. **Dexterity prescreen → `SKIPPED_UNREACHABLE` (`planning/dexterity.py`).**
+   Before planning, a **deterministic** classical-IK check
+   (`contact_pose_is_dexterous`) tests whether the pad-facing contact pose
+   (pierce on the `base→target` ray, a bounded orientation cone, **both**
+   tool-axis signs, FK-sampled warm-start seeds) is reachable within joint
+   limits. Preferred backend is **Pinocchio** (`planning/pinocchio_ik.py`,
+   `plan_prescreen_backend: auto`) when importable under host Isaac Sim Python;
+   CI falls back to NumPy DLS.
+   - **Position/reach-unreachable** targets are always `SKIPPED_UNREACHABLE`
+     and **excluded from the PLAN_OK gate**.
+   - **Orientation-infeasible** targets are skipped when the Pinocchio backend
+     is selected (`plan_prescreen_skip_orientation_infeasible: null` → auto).
+     With the NumPy fallback, orientation skip stays **off** (plain DLS
+     over-skips). The prescreen must never be used to fake a 1.0 rate.
+   - "**Dexterous Region**" = the interior reach shell
+     `[min_reach + margin, max_reach − margin]` (`configs/robot/workspace.yaml`,
+     `dexterous_region_margin_m`).
+2. **Bounded orientation cone (`contact_orientation_cone`).** When the exact
+   outward-normal contact pose `IK_FAIL`s, `try_oriented_tip_face_contact` tries
+   a small cone of pad-facing tool-axis directions (exact normal first, then
+   tilts ≤ `contact_orientation_cone_max_rad` at `…_azimuths`). Every candidate
+   stays **within the honest gate tolerance** (`axis_out ≤
+   TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ 35°), so this gives cuRobo a reachable
+   wrist **without** accepting side/through contacts. The chosen cone orientation
+   is threaded into the tip-omit nudge.
+3. **Planning budget (`configs/planning/collision.yaml`).** `curobo_max_attempts`
+   raised 4→6; `curobo_num_ik_seeds` / `curobo_num_trajopt_seeds` passed to
+   MotionGen (defensively — ignored on cuRobo builds that lack the kwargs);
+   optional `curobo_plan_enable_graph` / `curobo_plan_timeout_s`. More seeds cut
+   nondeterministic `IK_FAIL` timeouts, especially under GUI GPU contention (see
+   "Headless vs GUI" note in STATUS.md).
+
+### End-of-test `SKIPPED_UNREACHABLE` analysis (mandatory)
+
+**At the end of each viz/smoke test**, the run **must** analyze the log for
+`SKIPPED_UNREACHABLE` occurrences and, for each episode:
+
+1. **Speculate why** it was skipped (raw reach limit vs orientation feasibility),
+   from the metrics on the RESULT line
+   (`reason`, `in_region`, `radial_m`, `pos_err_m`, `ori_err_rad`).
+2. **If the target is still within the "Dexterous Region"** (position comfortably
+   reachable — `in_region=1` or `reason=unreachable_orientation`), **speculate a
+   different via** that would support a **deterministic** IK calculation — e.g.
+   a pre-approach via to a well-conditioned wrist pose on the `base→target`
+   radial solved by the classical DLS (or analytic/TRAC-IK) solver, then seed
+   the cuRobo contact plan from that deterministic solution and sweep the
+   approach azimuth within the bounded cone.
+
+The analysis is **printed in the prompt output** *and* **appended to
+`STATUS.md`** (never overwriting prior content). Implemented deterministically in
+`planning/skipped_analysis.py` (`analyze_and_report`), hooked at the end of
+`run_ik_viz.py`, and unit-tested in `tests/test_skipped_analysis.py`.
+
+### GUI smoke / verification policy (non-negotiable)
+
+1. The required Spark GUI test (`./scripts/run_verification.sh spark` → `smoke_isaac_viz.sh --gui`) **must** reset to home **only for the first episode** (session start).
+2. It **must not** return to home between subsequent episodes.
+3. CLI default is `--no-reset-to-home` (`parser.set_defaults(reset_to_home=False)`). YAML default is `reset_to_home_before_each_trial: false`.
+4. Independent-episode mode is **opt-in** via `--reset-to-home` (or YAML `true`) for dedicated rate-gate benchmarks — not for the required GUI smoke path.
+
+### GUI test log / warning format (monitoring contract)
+
+1. **Via-waypoint warning:** when a target is unreachable by a direct plan and is only reached through intermediate standoff waypoint(s) (`strategy=via_standoff*`), the viz must emit `VIA_WAYPOINT_USED …` at **warn** level so it appears as a warning in the Isaac Sim GUI (Kit **Window → Console** shows `carb.log_warn` in yellow).
+2. **Per-episode result line:** every episode ends with a grep-friendly line `[i/N] RESULT <PLAN_OK|PLAN_FAIL|PLAN_FAIL(no_contact)|SKIPPED|SKIPPED_UNREACHABLE|IK_FAIL> … | STATUS ok=.. fail=.. via=.. green=.. skip=.. rate=..` carrying the running totals for real-time monitoring (`rg 'RESULT|STATUS'` on a tailed log shows current health). A `SKIPPED_UNREACHABLE` line additionally carries `reason=.. in_region=.. radial_m=.. pos_err_m=.. ori_err_rad=.. orientations=.. axis=.. target=(x,y,z)` for the end-of-test analyzer.
+3. **Summary escalation:** the final `Phase 2 planning summary` includes `via=` / `skip=` / `skip_unreachable=` counts and is logged at warn level when any failure or via recovery occurred.
+4. Metrics JSON gains `phase2_via_waypoint_ok`, `phase2_skipped_targets`, and `phase2_skipped_unreachable`.
+6. **End-of-test analysis:** after the summary, the `SKIPPED_UNREACHABLE` analysis block (per `## End-of-test SKIPPED_UNREACHABLE analysis`) is printed and appended to `STATUS.md`.
+5. Contracts tested in `tests/test_viz_status_format.py`.
 
 Acceptance for sequential mode:
 
-1. Viz / smoke can run a chain of targets with `--no-reset-to-home` (home once at start).
+1. Viz / smoke runs a chain of targets with home once at start (default / `--no-reset-to-home`).
 2. Planning recovery + IK reseed (below) may reposition the arm **without** forcing a full home return between successful targets.
-3. Metrics for sequential mode are reported separately from the independent-episode 1.0 gate (do not claim the same rate without measuring it).
+3. Metrics for sequential mode are reported separately from any opt-in independent-episode 1.0 gate (do not claim the same rate without measuring it).
 4. Residual learning (Phases 3–4) must not assume every episode starts at home; observations already include `q_current`.
 
 ## IK failure → preparatory repositioning (practice-based strategy)
@@ -486,12 +591,26 @@ Acceptance for sequential mode:
 5. **Keep classical approach–retreat vias** for path existence (standoff clearances × lateral yaw, nearest→farthest). That is motion planning recovery, complementary to IK reseeding.
 6. **Do not** use bounded residual `Δq` to invent large preparatory motions — residuals stay within clamp limits after a classical `q_ik`.
 
+7. **EE-close `IK_FAIL` reposition via.** When the start is *valid* (not
+   `INVALID_START`) but the tip is folded **inside the standoff shell**
+   (`EE_CLOSE`), the oriented contact returns `IK_FAIL` and the tip→center
+   standoff ray is degenerate. Generate a **reposition via** on the
+   well-conditioned **base→target** radial (`radial_preapproach_tip` /
+   `try_radial_reposition_via`): back the tip off to an extended pre-approach
+   (progressive clearances/yaws, pad-facing orientation, tip spheres ON), then
+   retry the oriented contact from the more dexterous pose. Bounded by
+   `plan_recovery_reposition_max_attempts`. Do **not** exclude these targets from
+   the rate gate — recover them. (cuRobo has run-to-run nondeterminism near the
+   feasibility boundary, so this improves the odds without a hard guarantee.)
+
 **Implementation contract (Phase 2 / maintained on `wip_phase3`):**
 `residual_adaptive_ik.kinematics.ik_seed_bank` provides seed ordering + multi-seed
 `solve`. `planning.recovery.try_move_to_preparatory_seed` moves to a bank
 `q_seed` (collision-aware plan when possible; **open-loop** when
-`INVALID_START_*` blocks MotionGen). Home-blend is last-resort only after the
-seed bank is exhausted; then via standoffs.
+`INVALID_START_*` blocks MotionGen). `planning.recovery.try_radial_reposition_via`
+handles the valid-start `EE_CLOSE` `IK_FAIL` case via a base→target pre-approach.
+Home-blend is last-resort only after the seed bank is exhausted; then via
+standoffs.
 
 References: MoveIt kinematics configuration (solver attempts / cached IK); [IKSel](https://arxiv.org/abs/2503.22234) (seed ranking + farthest-failed re-attempt); approach/retreat in MoveIt pick pipelines; cuRobo MotionGen retries. See [REFERENCES.md](REFERENCES.md) Phase 2 library table.
 

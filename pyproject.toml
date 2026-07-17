@@ -20,6 +20,9 @@ dependencies = [
 learning = [
   "torch>=2.0",
 ]
+dexterity = [
+  "pinocchio>=2.6",
+]
 dev = [
   "pytest>=7.4",
   "ruff>=0.4",

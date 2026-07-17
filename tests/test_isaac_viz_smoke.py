@@ -85,9 +85,13 @@ def test_isaac_viz_host_smoke():
         pytest.fail(f"missing smoke script: {SMOKE}")
 
     env = os.environ.copy()
-    env.setdefault("ISAAC_VIZ_SMOKE_N_POSES", "48")
-    env.setdefault("ISAAC_VIZ_SMOKE_VISUALIZE", "12")
-    env.setdefault("ISAAC_VIZ_SMOKE_HOLD_S", "0.15")
+    # Headless parity with GUI: same planning workload (n_poses / visualize),
+    # accelerated playback only (time_warp).
+    env.setdefault("ISAAC_VIZ_SMOKE_N_POSES", "240")
+    env.setdefault("ISAAC_VIZ_SMOKE_VISUALIZE", "48")
+    env.setdefault("ISAAC_VIZ_SMOKE_HOLD_S", "0.2")
+    env.setdefault("ISAAC_VIZ_SMOKE_TIME_WARP", "4")
+    env.setdefault("ISAAC_VIZ_SMOKE_RESET_TO_HOME", "0")
 
     proc = subprocess.run(_smoke_cmd(), cwd=str(REPO), env=env, check=False)
     assert proc.returncode == 0, f"Isaac viz headless smoke failed: {_smoke_cmd()}"
@@ -108,8 +112,8 @@ def test_isaac_viz_gui_smoke():
     env.setdefault("ISAAC_VIZ_SMOKE_N_POSES", "240")
     env.setdefault("ISAAC_VIZ_SMOKE_VISUALIZE", "48")
     env.setdefault("ISAAC_VIZ_SMOKE_HOLD_S", "0.2")
-    # YAML default: reset_to_home_before_each_trial=true for reproducible 1.0
-    # rate gate. Use --no-reset-to-home separately for recovery stress testing.
+    # Required GUI policy: sequential multi-target (home once at first episode).
+    env.setdefault("ISAAC_VIZ_SMOKE_RESET_TO_HOME", "0")
 
     cmd = _smoke_cmd("--gui")
     proc = subprocess.run(cmd, cwd=str(REPO), env=env, check=False)
@@ -127,16 +131,23 @@ def test_smoke_isaac_viz_script_exists_and_documents_policy():
     ).read_text(encoding="utf-8") or "joint_drives" in text
     assert "ISAAC_VIZ_SMOKE_KEEP_GUI_OPEN" in text
     assert "PHASE1_SMOKE_KEEP_GUI_OPEN" in text  # legacy alias
+    assert "ISAAC_VIZ_SMOKE_TIME_WARP" in text
+    assert "--time-warp" in text
+    assert "Full Phase 2 planning still runs" in text
     assert "--auto-exit" in text
     assert "--reset-to-home" in text
     assert "--no-reset-to-home" in text
     assert "ISAAC_VIZ_MIN_PLAN_OK_RATE" in text
     assert "--min-plan-ok-rate" in text
-    # Default GUI smoke uses YAML reset_to_home (true) for reproducible 1.0 gate.
+    # Default GUI smoke forces sequential mode (home once only).
+    assert 'RESET_HOME="${ISAAC_VIZ_SMOKE_RESET_TO_HOME:-${PHASE1_SMOKE_RESET_TO_HOME:-0}}"' in text
     gui_src = Path(__file__).read_text(encoding="utf-8")
     assert '_smoke_cmd("--gui")' in gui_src
+    assert 'ISAAC_VIZ_SMOKE_RESET_TO_HOME", "0"' in gui_src
     ver = (REPO / "scripts" / "run_verification.sh").read_text(encoding="utf-8")
     assert "smoke_isaac_viz.sh --gui" in ver
+    assert "ISAAC_VIZ_SMOKE_RESET_TO_HOME=0" in ver
+    assert "home once" in ver.lower() or "--no-reset-to-home" in ver
 
 
 def test_viz_moves_home_once_and_turns_marker_green_on_contact():
@@ -153,7 +164,8 @@ def test_viz_moves_home_once_and_turns_marker_green_on_contact():
     assert "SKIP_OVERLAPPING_TARGET" in src
     assert "TARGET_MARKER_BASE_KEEPOUT_XY_M" in src
     # Servo shortfall: nudge toward IK tip before declaring no-contact.
-    assert "CONTACT_NUDGE" in src
+    assert "CONTACT_HOLD" in src or "CONTACT_NUDGE" in src
+    assert "ee_quaternion_wxyz" in src or "tip-face" in src.lower()
 
 
 def test_run_isaac_viz_rechecks_plan_ok_rate_after_kit():

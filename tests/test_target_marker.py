@@ -89,6 +89,111 @@ def test_ee_contacts_target_requires_tip_face_not_side():
     )
 
 
+def test_ee_contacts_target_requires_tool_axis_alignment():
+    """Flange +Z must point OUTWARD (along the approach ray) — signed check.
+
+    A genuine front tip-face contact has +Z along the outward normal
+    (tip − center); this is the reachable, visually-correct orientation
+    (commanding the inward sign fails IK). The gate is *signed*: it rejects both
+    - "side of the EE": tool axis ⟂ the radial (+Z ⊥ approach), and
+    - "flipped/back of the EE": +Z pointing *toward* the center.
+    """
+    from residual_adaptive_ik.planning.contact_geometry import (
+        quaternion_facing_sphere,
+    )
+
+    target = np.array([0.20, 0.0, 0.15])
+    approach_from = target + np.array([-0.10, 0.0, 0.0])
+    pierce = tip_face_pierce_point_m(approach_from, target)
+    # +Z outward (away from center, along approach ray): correct front contact.
+    quat_out = quaternion_facing_sphere(pierce - target)
+    assert ee_contacts_target(
+        pierce, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quat_out, axis_tol_rad=0.2,
+    )
+    # +Z inward (toward center): flange flipped/back onto the marker even though
+    # the tip position is correct — reject.
+    quat_in = quaternion_facing_sphere(target - pierce)
+    assert not ee_contacts_target(
+        pierce, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quat_in, axis_tol_rad=0.2,
+    )
+    # Perpendicular (tool axis along world +Z, ⟂ the +X approach): sphere would
+    # touch the *side* of the EE — reject ("wrong side of the EE").
+    quat_side = quaternion_facing_sphere(np.array([0.0, 0.0, 1.0]))
+    assert not ee_contacts_target(
+        pierce, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quat_side, axis_tol_rad=0.2,
+    )
+
+
+def test_classify_tip_contact_detects_failure_modes():
+    """classify_tip_contact labels through / side / wrong-side / ok."""
+    from isaac_sim.target_marker import classify_tip_contact
+    from residual_adaptive_ik.planning.contact_geometry import (
+        quaternion_facing_sphere,
+    )
+
+    target = np.array([0.20, 0.0, 0.15])
+    approach_from = target + np.array([-0.10, 0.0, 0.0])  # approach along +X
+    pierce = tip_face_pierce_point_m(approach_from, target)  # on -X surface
+    normal = pierce - target  # outward at pierce (−X) — correct +Z direction
+    inward = target - pierce  # toward center (+X)
+
+    # Valid front tip-face contact: +Z outward (along the approach ray).
+    ok, reason, m = classify_tip_contact(
+        pierce, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quaternion_facing_sphere(normal),
+    )
+    assert ok and reason == "ok"
+    # penetration ≈ −radius on the near surface (signed axial from center).
+    assert m["penetration_m"] == pytest.approx(-TARGET_MARKER_RADIUS_M, abs=2e-3)
+    # axis_out ≈ 0 (flange faces back along approach); axis_in ≈ π.
+    assert m["axis_out_err_rad"] == pytest.approx(0.0, abs=1e-6)
+    assert m["axis_in_err_rad"] == pytest.approx(np.pi, abs=1e-6)
+
+    # Through: tip on the far (+X) hemisphere along the approach.
+    far_side = target + np.array([TARGET_MARKER_RADIUS_M * 0.6, 0.0, 0.0])
+    ok, reason, m = classify_tip_contact(
+        far_side, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quaternion_facing_sphere(normal),
+    )
+    assert not ok and reason == "through"
+    assert m["penetration_m"] > 0.0
+
+    # Side graze: on the equator, far from the tip-face pad.
+    side = target + np.array([0.0, TARGET_MARKER_RADIUS_M, 0.0])
+    ok, reason, _ = classify_tip_contact(
+        side, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quaternion_facing_sphere(side - target),
+    )
+    assert not ok and reason in ("side_graze", "through")
+
+    # Wrong side of the EE (side/barrel): correct position but tool axis ⟂ radial.
+    ok, reason, _ = classify_tip_contact(
+        pierce, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quaternion_facing_sphere(np.array([0.0, 0.0, 1.0])),
+    )
+    assert not ok and reason == "wrong_side_axis"
+
+    # Flipped/back onto the marker: correct position but +Z points TOWARD the
+    # center (inward). This is the case the sign-agnostic gate used to accept
+    # (folded 180°→0°) — now rejected by the signed outward check.
+    ok, reason, m = classify_tip_contact(
+        pierce, target, approach_from_m=approach_from,
+        ee_quaternion_wxyz=quaternion_facing_sphere(inward),
+    )
+    assert not ok and reason == "wrong_side_axis"
+    assert m["axis_out_err_rad"] == pytest.approx(np.pi, abs=1e-6)
+
+    # Too far away entirely.
+    ok, reason, _ = classify_tip_contact(
+        target + np.array([0.05, 0.0, 0.0]), target,
+        approach_from_m=approach_from,
+    )
+    assert not ok and reason == "no_contact"
+
+
 def test_red_and_green_rgb_distinct():
     assert TARGET_MARKER_COLOR_RED_RGB[0] > TARGET_MARKER_COLOR_RED_RGB[1]
     assert TARGET_MARKER_COLOR_GREEN_RGB[1] > TARGET_MARKER_COLOR_GREEN_RGB[0]

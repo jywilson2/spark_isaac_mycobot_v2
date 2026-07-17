@@ -99,9 +99,10 @@ run_pytest() {
 
 run_headless_isaac() {
   echo "=== CI: headless Isaac Sim smoke ==="
-  # Spark already runs a full GUI animation later — keep headless to metrics only
-  # so we do not burn ~3–5 min twice or leave two Kits competing for the GPU.
-  # Scope the env to this invocation only (do not leak into the GUI stage).
+  # Headless runs the same Phase 2 planning / contact / rate-gate workload as
+  # GUI (same n_poses / visualize / reset policy). Only the Kit window is
+  # omitted; articulation playback is time-warped (default 4×) because no human
+  # is watching. Scope env to this invocation so GUI stays real-time.
   local -a cmd
   if [[ -f /.dockerenv ]]; then
     cmd=(bash "${ROOT}/scripts/host/spark_host_exec.sh" ./scripts/host/smoke_isaac_viz.sh)
@@ -109,24 +110,36 @@ run_headless_isaac() {
     cmd=(bash "${ROOT}/scripts/host/smoke_isaac_viz.sh")
   fi
   if [[ "${MODE}" == "spark" ]]; then
-    local viz="${ISAAC_VIZ_SMOKE_HEADLESS_VISUALIZE:-${PHASE1_SMOKE_HEADLESS_VISUALIZE:-0}}"
-    echo "NOTE: Spark headless uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (metrics only)."
-    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" "${cmd[@]}"
+    # Default matches GUI episode count (48). Override with
+    # ISAAC_VIZ_SMOKE_HEADLESS_VISUALIZE if a shorter headless pass is needed.
+    local viz="${ISAAC_VIZ_SMOKE_HEADLESS_VISUALIZE:-${PHASE1_SMOKE_HEADLESS_VISUALIZE:-${ISAAC_VIZ_SMOKE_GUI_VISUALIZE:-${ISAAC_VIZ_SMOKE_VISUALIZE:-48}}}}"
+    local nposes="${ISAAC_VIZ_SMOKE_N_POSES:-${PHASE1_SMOKE_N_POSES:-240}}"
+    local warp="${ISAAC_VIZ_SMOKE_TIME_WARP:-${PHASE1_SMOKE_TIME_WARP:-4}}"
+    echo "NOTE: Spark headless = full planning (visualize=${viz}, n_poses=${nposes}, time_warp=${warp}×; no window)."
+    ISAAC_VIZ_SMOKE_VISUALIZE="${viz}" PHASE1_SMOKE_VISUALIZE="${viz}" \
+      ISAAC_VIZ_SMOKE_N_POSES="${nposes}" PHASE1_SMOKE_N_POSES="${nposes}" \
+      ISAAC_VIZ_SMOKE_TIME_WARP="${warp}" PHASE1_SMOKE_TIME_WARP="${warp}" \
+      ISAAC_VIZ_SMOKE_RESET_TO_HOME=0 PHASE1_SMOKE_RESET_TO_HOME=0 \
+      "${cmd[@]}"
   else
-    "${cmd[@]}"
+    # CI default: same visualize count as smoke script (48) + headless time-warp.
+    local warp="${ISAAC_VIZ_SMOKE_TIME_WARP:-${PHASE1_SMOKE_TIME_WARP:-4}}"
+    ISAAC_VIZ_SMOKE_TIME_WARP="${warp}" PHASE1_SMOKE_TIME_WARP="${warp}" "${cmd[@]}"
   fi
 }
 
 run_gui_isaac() {
   echo "=== Spark: GUI Isaac Sim smoke (required after headless) ==="
   # Explicit GUI visualize count (default 48); never inherit headless 0.
-  # Do NOT pass --reset-to-home: home is applied once at viz start; per-trial
-  # reset would hide path-dependent recovery failures.
+  # Required policy (spec.md): home once at session start / first episode only.
+  # Force sequential multi-target — never pass --reset-to-home here.
   local viz="${ISAAC_VIZ_SMOKE_GUI_VISUALIZE:-${PHASE1_SMOKE_GUI_VISUALIZE:-${ISAAC_VIZ_SMOKE_VISUALIZE:-${PHASE1_SMOKE_VISUALIZE:-48}}}}"
-  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (YAML default: reset-to-home)."
+  echo "NOTE: Spark GUI uses ISAAC_VIZ_SMOKE_VISUALIZE=${viz} (home once; --no-reset-to-home)."
   local -a gui_env=(
     "ISAAC_VIZ_SMOKE_VISUALIZE=${viz}"
     "PHASE1_SMOKE_VISUALIZE=${viz}"
+    "ISAAC_VIZ_SMOKE_RESET_TO_HOME=0"
+    "PHASE1_SMOKE_RESET_TO_HOME=0"
   )
   if [[ -f /.dockerenv ]]; then
     env "${gui_env[@]}" \

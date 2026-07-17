@@ -46,8 +46,16 @@ Authoritative links: [REFERENCES.md](REFERENCES.md) § Phase 1 implementation li
 | **cuRobo** (host, Apache-2.0) | GPU MotionGen + volumetric marker; fail-closed planning. |
 | **MoveIt 2** (optional later, ROS) | Approach/retreat + multi-seed IK practice reference — not the residual brain. |
 | **ik_seed_bank** (in-repo) | Joint-space multi-seed IK for sequential multi-target / via2 fallback. |
+| **dexterity** (in-repo) | Deterministic DLS-IK prescreen of the pad-facing contact pose → `SKIPPED_UNREACHABLE` for out-of-reach targets (excluded from the gate). |
+| **contact_orientation_cone** (in-repo) | Bounded pad-facing orientation cone (≤ gate tol) so near-envelope contacts get a reachable wrist without accepting side/through contacts. |
+| **skipped_analysis** (in-repo) | End-of-test `SKIPPED_UNREACHABLE` analysis (reason + Dexterous-Region via speculation), printed and appended to `STATUS.md`. |
 
 Authoritative links: [REFERENCES.md](REFERENCES.md) § Phase 2 implementation libraries.
+
+**Dexterous-workspace gate / headless parity (2026-07-17):** the preferred gate
+backend is **Pinocchio** (host Isaac Sim Python; NumPy fallback in CI). Headless
+smoke runs the **same** Phase 2 planning episodes as GUI (no window) with
+`ISAAC_VIZ_SMOKE_TIME_WARP=4` by default. See `spec.md` and `STATUS.md`.
 
 ---
 
@@ -170,7 +178,7 @@ Phase 1 host runs (`run_isaac_viz.sh` / `smoke_isaac_viz.sh`) print many Kit lin
 
 If a **new** warning appears that names this repo’s prims, URDF, or Python modules, treat it as a bug: fix the asset/script, do not filter the log.
 
-**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan OK the tip approaches the **surface** and the sphere turns **green** on contact. On plan fail: timed **standoff via-waypoint** recovery + multi-seed IK bank, then fail-closed (yellow, no motion). Home is applied **once** at viz start; per-trial home (`reset_to_home_before_each_trial` / `--reset-to-home`) is the independent-episode gate — use `--no-reset-to-home` for sequential multi-target (spec.md). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
+**Collision note:** Phase 2 uses a volumetric 12 mm marker (cuRobo OBB). On plan OK the tip approaches the **surface** and the sphere turns **green** on contact. On plan fail: timed **standoff via-waypoint** recovery + multi-seed IK bank, then fail-closed (yellow, no motion). Home is applied **once** at viz start (first episode only; CLI/YAML default `--no-reset-to-home`). Per-trial home (`--reset-to-home`) is an opt-in independent-episode gate — see [spec.md](spec.md). See [docs/phase2_geometry.md](docs/phase2_geometry.md).
 
 **Kit Console vs host terminal:** `print` goes to the host shell. Plan status lines are also mirrored with `carb.log_*` so they appear under Isaac Sim **Window → Console** (set the filter to Info/Verbose). That is not a live tee of the entire host terminal — only messages the viz process logs.
 
@@ -340,11 +348,13 @@ Short Phase 1 metrics + Phase 2 planning smoke for TDD / CI-like verification. D
 
 The IK target sphere relocates only after planning finishes (red on `PLAN_OK`, yellow after recovery fail) — not at the start of each trial.
 
-Home reset **per trial** (independent-episode mode; YAML default on for the 1.0 gate). Sequential multi-target: `--no-reset-to-home`. Viz always moves to home **once** before the first trial:
+**Monitoring the GUI test:** each episode logs `[i/N] EPISODE …` then `[i/N] RESULT <PLAN_OK|PLAN_FAIL|SKIPPED|SKIPPED_UNREACHABLE|…> | STATUS ok=.. fail=.. via=.. green=.. skip=.. rate=..` (running totals). At the end of the run a `SKIPPED_UNREACHABLE analysis` block is printed and appended to `STATUS.md`. A target that was unreachable directly and needed intermediate standoff waypoint(s) logs a `VIA_WAYPOINT_USED` **warning**, mirrored into the Isaac Sim GUI via Kit **Window → Console**. Quick live filter: `tail -F <log> | rg 'RESULT|VIA_WAYPOINT|FAIL'`.
+
+Home reset **once** at session start (first episode) is the default / required GUI smoke policy. Per-trial home is opt-in for the independent-episode gate:
 
 ```bash
+./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --reset-to-home
-./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui --no-reset-to-home
 # or:
 ISAAC_VIZ_SMOKE_RESET_TO_HOME=1 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh --gui
 ```

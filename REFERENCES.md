@@ -35,6 +35,23 @@ README “Phase N libraries” section in the same change set (see `spec.md` § 
 | [OMPL](https://ompl.kavrakilab.org/) | Sampling-based planning | Underpins many MoveIt planners |
 | [IKSel (arXiv:2503.22234)](https://arxiv.org/abs/2503.22234) | Numerical IK seed ranking | Joint-space seed bank + farthest-from-failed re-attempt (`ik_seed_bank.py`) |
 | [MoveIt kinematics config](https://moveit.picknik.ai/main/doc/examples/kinematics_configuration/kinematics_configuration_tutorial.html) | Solver attempts / cached IK | Practice reference for multi-seed IK retries |
+| [NumPy](https://numpy.org/doc/stable/) (DLS) | `numerical_ik.py` | Phase-1 classical IK; CI fallback for dexterity prescreen |
+| [Pinocchio](https://stack-of-tasks.github.io/pinocchio/) | Analytic FK / Jacobians | **Preferred** dexterous-workspace gate backend (`planning/pinocchio_ik.py`); host Isaac Sim Python |
+
+### IK-library note (deep-learning IK vs deterministic; prescreen oracle)
+
+The deployed path is **classical IK + bounded residual** (`spec.md`); a learned
+network mapping pose → full 6-DOF joints as the primary IK is **out of scope**.
+The dexterous-workspace gate uses **Pinocchio** (available under host Isaac Sim
+Python) as the preferred completeness oracle; NumPy DLS is the CI fallback and
+does **not** skip orientation-limited targets by default.
+
+| Library | Kind | Role here |
+|---------|------|-----------|
+| [Pinocchio](https://stack-of-tasks.github.io/pinocchio/) | Rigid-body FK / Jacobians | **Adopted** for the dexterity gate (`plan_prescreen_backend: auto`) |
+| [IKFast (OpenRAVE)](http://openrave.org/docs/latest_stable/openravepy/ikfast/) | Analytic / closed-form | Future upgrade if exhaustive branch coverage is needed |
+| [TRAC-IK](https://traclabs.com/projects/trac-ik/) | KDL + SQP hybrid | Alternative numerical IK (ROS-centric) |
+| [IKFlow (arXiv:2111.08933)](https://arxiv.org/abs/2111.08933) | Learned (normalizing flow) | *Reference only* — not adopted |
 
 Vendor reach / speed reference: [myCobot 280 specs](https://www.elephantrobotics.com/en/mycobot-280-m5-new-specificatons-en/) (280 mm, 160 °/s) → `configs/robot/workspace.yaml`.  
 v1 even-coverage reference: `spark_isaac_mycobot_demo/isaac_lab/mdp_core.py` (cylindrical annulus + stratified demo bins).

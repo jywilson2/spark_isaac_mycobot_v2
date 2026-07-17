@@ -22,12 +22,21 @@ from residual_adaptive_ik.planning.recovery import (
     recovery_audit_plan_fail,
     tip_standoff_on_approach,
     try_move_to_preparatory_seed,
+    try_oriented_tip_face_contact,
+)
+from residual_adaptive_ik.planning.contact_geometry import (
+    ContactApproach,
+    build_sphere_contact_approach,
+    tool_axis_from_quaternion,
+    validate_axial_contact_segment,
 )
 
 __all__ = [
+    "ContactApproach",
     "CuRoboMotionPlanner",
     "JointPath",
     "PlannedTrajectory",
+    "build_sphere_contact_approach",
     "check_ground_collision",
     "curobo_available",
     "interpolate_joint_path",
@@ -37,5 +46,8 @@ __all__ = [
     "plan_via_standoff",
     "recovery_audit_plan_fail",
     "tip_standoff_on_approach",
+    "tool_axis_from_quaternion",
     "try_move_to_preparatory_seed",
+    "try_oriented_tip_face_contact",
+    "validate_axial_contact_segment",
 ]

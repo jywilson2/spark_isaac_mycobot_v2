@@ -13,6 +13,7 @@ from isaac_sim.target_marker import (
 )
 from isaac_sim.viz_plan_policy import (
     MarkerVisualState,
+    ViaPressureTracker,
     may_execute_motion,
     meets_min_plan_ok_rate,
     plan_ok_rate,
@@ -34,6 +35,47 @@ def test_may_execute_motion_fail_closed():
     assert may_execute_motion(True) is True
     assert may_execute_motion(False) is False
     assert may_execute_motion(False, gate_on_failure=False) is False
+
+
+def test_via_pressure_tracker_flags_consecutive_via_episodes():
+    """Repeated-via math: EMA of via usage + consecutive-via streak.
+
+    No-via episodes keep pressure low; a sustained run of via episodes drives
+    the EMA up and the streak past threshold → ``high`` (systematic bad
+    approach), then a clean episode resets the streak.
+    """
+    t = ViaPressureTracker(alpha=0.5, ema_usage_threshold=0.6, streak_threshold=3)
+
+    # A clean episode (no via) is never "high".
+    r = t.update(0)
+    assert r["streak"] == 0 and r["ema_usage"] == 0.0 and r["high"] is False
+
+    # First via episode: streak 1, below the streak threshold.
+    r = t.update(2)
+    assert r["streak"] == 1 and r["ema_usage"] > 0.0 and r["high"] is False
+
+    # Two more consecutive via episodes → streak 3, EMA ≥ 0.6 → high.
+    t.update(1)
+    r = t.update(3)
+    assert r["streak"] == 3
+    assert r["ema_usage"] >= 0.6
+    assert r["high"] is True
+    assert r["max_streak"] >= 3
+    assert r["ema_attempts"] > 0.0
+
+    # A clean episode resets the consecutive streak (no longer high).
+    r = t.update(0)
+    assert r["streak"] == 0 and r["high"] is False
+    assert r["max_streak"] == 3  # historical max preserved
+
+
+def test_via_pressure_tracker_low_pressure_when_vias_sparse():
+    """Isolated single-via episodes never trip the streak gate."""
+    t = ViaPressureTracker(alpha=0.5, ema_usage_threshold=0.6, streak_threshold=3)
+    highs = []
+    for a in (1, 0, 1, 0, 1, 0):
+        highs.append(t.update(a)["high"])
+    assert not any(highs)
 
 
 def test_historical_ok_fallback_plan_failed_is_not_executable():
@@ -147,9 +189,12 @@ def test_viz_script_uses_fail_closed_policy_and_yellow_marker():
     assert "_viz_log" in src
     assert "meets_min_plan_ok_rate" in src
     assert "--min-plan-ok-rate" in src
-    # CONTACT_NUDGE may drive toward trial.q_sol only after PLAN_OK.
-    # Must not reintroduce ungated IK lerp in the PLAN_FAIL / GATED_NO_MOTION path.
-    assert "CONTACT_NUDGE" in src
+    # CONTACT_HOLD refines to the pierce point on the near surface; must not
+    # drive to trial.q_sol (marker center) which reintroduces side/flange
+    # immersion.
+    assert "CONTACT_HOLD" in src
+    assert "axial refine to pierce" in src
+    assert "marker\n                # center" in src or "marker center" in src
     fail_idx = src.index("GATED_NO_MOTION")
     # Within ~800 chars after GATED_NO_MOTION there must be no trial.q_sol drive.
     window = src[fail_idx : fail_idx + 800]

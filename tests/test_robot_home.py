@@ -30,9 +30,16 @@ def test_smoke_script_forwards_reset_to_home():
     assert "ISAAC_VIZ_SMOKE_RESET_TO_HOME" in src
 
 
-def test_collision_yaml_enables_home_reset():
+def test_collision_yaml_disables_home_reset_by_default():
     from residual_adaptive_ik.planning.curobo_planner import load_planning_config
 
     cfg = load_planning_config()
-    # Default on so 1.0 rate gate is reproducible; opt-out with --no-reset-to-home.
-    assert cfg.get("reset_to_home_before_each_trial", False) is True
+    # Sequential multi-target default; opt-in with --reset-to-home.
+    assert cfg.get("reset_to_home_before_each_trial", True) is False
+
+
+def test_viz_cli_defaults_to_no_reset_to_home():
+    src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
+    assert "parser.set_defaults(reset_to_home=False)" in src
+    assert "--no-reset-to-home" in src
+    assert "default sequential multi-target / GUI smoke policy" in src

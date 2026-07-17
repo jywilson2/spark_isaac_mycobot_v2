@@ -357,12 +357,33 @@ class CuRoboMotionPlanner:
         )
         # Reserve cuboid cache slots: ground + at least one IK target OBB.
         world0 = self._world_config_for_checker(None)
-        motion_gen_cfg = MotionGenConfig.load_from_robot_config(
-            robot_cfg,
-            world0,
+        # Planning-budget seeds (spec.md Phase 2 "more budget"). More IK /
+        # trajopt seeds raise the odds a hard near-envelope contact pose solves.
+        # Passed defensively: if a cuRobo build rejects a kwarg, retry without
+        # the seed overrides so we never hard-fail on version drift.
+        cfg = load_planning_config()
+        gen_kwargs: dict = dict(
             interpolation_dt=self._interpolation_dt_s,
             collision_cache={"obb": 8},
         )
+        n_ik = cfg.get("curobo_num_ik_seeds", None)
+        n_to = cfg.get("curobo_num_trajopt_seeds", None)
+        if n_ik is not None:
+            gen_kwargs["num_ik_seeds"] = int(n_ik)
+        if n_to is not None:
+            gen_kwargs["num_trajopt_seeds"] = int(n_to)
+        try:
+            motion_gen_cfg = MotionGenConfig.load_from_robot_config(
+                robot_cfg, world0, **gen_kwargs
+            )
+        except TypeError:
+            # Older/newer cuRobo without these seed kwargs — keep defaults.
+            motion_gen_cfg = MotionGenConfig.load_from_robot_config(
+                robot_cfg,
+                world0,
+                interpolation_dt=self._interpolation_dt_s,
+                collision_cache={"obb": 8},
+            )
         self._motion_gen = MotionGen(motion_gen_cfg)
         self._motion_gen.warmup(enable_graph=True, warmup_js_trajopt=False)
 
@@ -419,9 +440,22 @@ class CuRoboMotionPlanner:
             quaternion=torch.as_tensor(quat, device=self._device).view(1, 4),
         )
         assert self._motion_gen is not None
-        result = self._motion_gen.plan_single(
-            start, goal, MotionGenPlanConfig(max_attempts=int(max_attempts))
-        )
+        # Planning-budget knobs (spec.md Phase 2 "more budget"): optional graph
+        # search + per-plan timeout. Built defensively so an installed cuRobo
+        # that lacks a kwarg still runs with max_attempts only.
+        cfg = load_planning_config()
+        plan_kwargs: dict = {"max_attempts": int(max_attempts)}
+        enable_graph = cfg.get("curobo_plan_enable_graph", None)
+        if enable_graph is not None:
+            plan_kwargs["enable_graph"] = bool(enable_graph)
+        plan_timeout = cfg.get("curobo_plan_timeout_s", None)
+        if plan_timeout is not None:
+            plan_kwargs["timeout"] = float(plan_timeout)
+        try:
+            plan_config = MotionGenPlanConfig(**plan_kwargs)
+        except TypeError:
+            plan_config = MotionGenPlanConfig(max_attempts=int(max_attempts))
+        result = self._motion_gen.plan_single(start, goal, plan_config)
         if not bool(result.success.item()):
             return PlannedTrajectory(
                 waypoints_rad=np.zeros((0, 6)),

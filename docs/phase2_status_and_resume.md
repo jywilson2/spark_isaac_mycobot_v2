@@ -29,7 +29,7 @@ This is the operational briefing for Phase 2 (geometry + collision-aware plannin
 | Headless recovery audit | **Done** | `diagnose_plan_recovery.sh` — fails if PLAN_FAIL has zero `via1_` |
 | Marker↔EE side-contact diagnostic | **Done** | `diagnose_marker_ee_contact.sh` (tip vs side sphere hits) |
 | Isaac viz rename | **Done** | `smoke_isaac_viz.sh` / `run_isaac_viz.sh` / `run_ik_viz.py` |
-| Home reset | **Done (opt-in per trial)** | Once at viz start always; per-trial only via `--reset-to-home` (GUI smoke does **not**) |
+| Home reset | **Done (default sequential)** | Once at viz start always; per-trial only via opt-in `--reset-to-home` (GUI smoke does **not**) |
 | Spark verification pipeline | **Done** | `./scripts/run_verification.sh spark` |
 | Kit Console mirroring | **Done** | `carb.log_*` for PLAN_* lines (not a full host-terminal tee) |
 
