@@ -1131,6 +1131,106 @@ def try_oriented_tip_face_contact(
                     log.append(f"contact_approach_dls_q{qi}:{leg_ap.message}")
                     last_dt = float(leg_ap.dt_s)
                     if leg_ap.ok:
+                        # Same tip-face / immersion / arm-body gates as MotionGen
+                        # (iter16 Ep10: DLS lerp chord side_graze lat=12 mm then
+                        # green → PLAN_FAIL invalid_side).
+                        wp_dls = np.asarray(leg_ap.waypoints_rad, dtype=float)
+                        clear, min_d = tip_path_avoids_marker_immersion(
+                            wp_dls,
+                            sphere_center_m=sphere_center_m,
+                            sphere_radius_m=sphere_radius_m,
+                            model=mdl,
+                            stride=max(1, wp_dls.shape[0] // 32),
+                        )
+                        if not clear:
+                            log.append(
+                                f"contact_approach_dls_q{qi}:tip_immerses_path"
+                                f"|min_dist_m={min_d:.4f}"
+                            )
+                            _decision(
+                                decision_emit,
+                                log,
+                                f"approach_dls_reject_immersion q{qi} "
+                                f"min_tip_dist_m={min_d:.4f}",
+                            )
+                            leg_ap = PlannedTrajectory(
+                                waypoints_rad=np.zeros((0, 6)),
+                                dt_s=last_dt,
+                                success=False,
+                                backend="dls_approach",
+                                message="plan_failed:dls_tip_immerses_marker_path",
+                            )
+                        if leg_ap.ok:
+                            arm_r = float(
+                                cfg.get(
+                                    "arm_sweep_link_radius_m",
+                                    cfg.get("link_radius_m", 0.012),
+                                )
+                            )
+                            n_ign = int(
+                                cfg.get("arm_sweep_n_ee_segments_ignored", 3)
+                            )
+                            stride_arm = max(1, wp_dls.shape[0] // 16)
+                            for q_arm in wp_dls[::stride_arm]:
+                                arm_hit = proximal_arm_contacts_target(
+                                    q_arm,
+                                    sphere_center_m,
+                                    target_radius_m=sphere_radius_m,
+                                    model=mdl,
+                                    link_radius_m=arm_r,
+                                    n_ee_segments_ignored=n_ign,
+                                )
+                                if arm_hit.collides:
+                                    log.append(
+                                        f"contact_approach_dls_q{qi}:"
+                                        f"arm_body_path|"
+                                        f"reasons={list(arm_hit.reasons)}"
+                                    )
+                                    _decision(
+                                        decision_emit,
+                                        log,
+                                        f"approach_dls_reject_arm_body q{qi}",
+                                    )
+                                    leg_ap = PlannedTrajectory(
+                                        waypoints_rad=np.zeros((0, 6)),
+                                        dt_s=last_dt,
+                                        success=False,
+                                        backend="dls_approach",
+                                        message="plan_failed:dls_arm_body_on_approach",
+                                    )
+                                    break
+                        if leg_ap.ok:
+                            standoff_ref = np.asarray(
+                                approach.standoff_position_m, dtype=float
+                            ).reshape(3)
+                            tf_ok, tf_reason = tip_path_tip_face_ok(
+                                wp_dls,
+                                sphere_center_m=sphere_center_m,
+                                sphere_radius_m=sphere_radius_m,
+                                approach_from_m=standoff_ref,
+                                model=mdl,
+                                cfg=cfg,
+                                stride=max(1, wp_dls.shape[0] // 24),
+                            )
+                            if not tf_ok:
+                                log.append(
+                                    f"contact_approach_dls_q{qi}:tip_face_path|"
+                                    f"reason={tf_reason}"
+                                )
+                                _decision(
+                                    decision_emit,
+                                    log,
+                                    f"approach_dls_reject_tip_face q{qi} "
+                                    f"reason={tf_reason}",
+                                )
+                                leg_ap = PlannedTrajectory(
+                                    waypoints_rad=np.zeros((0, 6)),
+                                    dt_s=last_dt,
+                                    success=False,
+                                    backend="dls_approach",
+                                    message=f"plan_failed:dls_tip_face_{tf_reason}",
+                                )
+                    if leg_ap.ok:
                         quat = np.asarray(quat_try, dtype=float).reshape(4)
                         chosen_quat = quat.copy()
                         _decision(

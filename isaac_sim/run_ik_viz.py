@@ -1583,7 +1583,7 @@ def run_viz(args: argparse.Namespace) -> int:
                 q_green = contact_diag.get("q_at_contact")
                 if (
                     q_green is not None
-                    and d_hold > shell_max
+                    and d_hold > shell_max + 5e-4  # 0.5 mm past shell
                     and np.asarray(q_green).shape == (6,)
                 ):
                     q_freeze = np.asarray(q_green, dtype=float).reshape(6).copy()

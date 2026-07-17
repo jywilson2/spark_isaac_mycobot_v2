@@ -74,14 +74,20 @@ mid-path SIDE_GRAZE lat=6 mm (tip-face R=4 mm). Likely on tip-omit segment
 `PLAN_FAIL(no_contact)` settle dist=20.4 mm after green at 13.5 mm;
 CONTACT_HOLD IK failed at tip_to_pierce=8.4 mm.
 
-**Iter16 change:** latch ``q_at_contact`` on first green; ``SETTLE_RESTORE``
-when tip drifts outside shell; CONTACT_HOLD position-relaxed IK + restore
-green pose on IK fail.
+**Iter16 smoke:** headless viz=16 abort=1 → **FAIL** `ok=9 fail=1` — Ep10
+`PLAN_FAIL(invalid_side)`: DLS approach mid-path `SIDE_GRAZE` lat=12.4 mm
+axis_out=83°, then green; settle EE side spheres + midpath graze latch.
+SETTLE_RESTORE fired at shell boundary (secondary).
+
+**Iter17 change:** apply tip-face / immersion / arm-body path rejects to
+**DLS standoff approach** (same gates as MotionGen); SETTLE_RESTORE needs
+0.5 mm past shell (not equality).
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
 | 15 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 settle 20.4 mm | restore q_at_contact |
-| 16 | headless (pending) | — | then long GUI viz=48 |
+| 16 | headless viz=16 abort=1 | **FAIL** 9/10 — Ep10 DLS side_graze | tip-face gate on DLS |
+| 17 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -1022,6 +1028,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:58 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:34 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

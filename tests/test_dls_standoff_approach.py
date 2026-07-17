@@ -92,3 +92,20 @@ def test_tip_path_avoids_marker_immersion():
     )
     assert not bad
     assert min_d < 0.01
+
+
+def test_dls_approach_caller_applies_tip_face_gate():
+    """CuRobo DLS fallback must reject tip-face grazes (iter16 Ep10)."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "residual_adaptive_ik"
+        / "planning"
+        / "recovery.py"
+    ).read_text(encoding="utf-8")
+    assert "approach_dls_reject_tip_face" in src
+    assert "plan_failed:dls_tip_face_" in src
+    assert "approach_dls_reject_arm_body" in src
+    assert "approach_dls_reject_immersion" in src

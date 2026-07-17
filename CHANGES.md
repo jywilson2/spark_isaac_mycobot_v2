@@ -1,5 +1,15 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter17: Tip-face / arm-body gates on DLS standoff approach (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — after ``plan_dls_standoff_approach_lerp`` succeeds, reject
+   paths with tip immersion, proximal arm body contact, or tip-face
+   ``side_graze`` / through / clear wrong_side (iter16 Ep10 DLS chord graze).
+2. **`run_ik_viz.py`** — ``SETTLE_RESTORE`` only when tip is >0.5 mm past shell
+   (avoid equality false triggers at 14.0 mm).
+
 ## Iter16: Restore q_at_contact when settle tip drifts to standoff (2026-07-17)
 
 **Enumerated changes**
