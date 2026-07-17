@@ -130,7 +130,12 @@ path clean**: `ok=11 fail=0 rate=1.000` but `skip_unreachable=24/40`
 **Iter26 change:** reject DLS approach end poses with flipped pad
 (axis_err ≫ tip-face tol).
 
-| 26 | headless (pending) | — | then long GUI viz=48 |
+**Iter26 smoke:** headless viz=16 n_poses=80 abort=1 → **FAIL** `ok=5 fail=1`
+— Ep6 `PLAN_FAIL(no_contact)` (pad-end reject may force harder vias). Best
+contact streak remains iter25 **11/12** with skip_frac=0.
+
+| 26 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 no_contact | investigate Ep6 |
+| 27 | pending | — | toward GUI viz=48 |
 
 
 ## Spec freeze — contact failures (2026-07-17)
