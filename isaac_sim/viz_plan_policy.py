@@ -57,6 +57,37 @@ def meets_min_plan_ok_rate(
     return plan_ok_rate(n_ok, n_fail) + 1e-15 >= float(min_rate)
 
 
+def skip_unreachable_frac(n_skip_unreachable: int, n_candidates: int) -> float:
+    """Fraction of *considered* candidates that were ``SKIPPED_UNREACHABLE``.
+
+    Denominator is candidates inspected while filling countable episodes
+    (skips + planned), **not** the countable-episode target. Unreachable
+    targets must not inflate the episode count (spec.md Phase 2).
+    """
+    total = int(n_candidates)
+    if total <= 0:
+        return 0.0
+    return float(n_skip_unreachable) / float(total)
+
+
+def meets_max_skip_unreachable_frac(
+    n_skip_unreachable: int,
+    n_candidates: int,
+    *,
+    max_frac: float,
+) -> bool:
+    """True when skip-unreachable fraction is ≤ ``max_frac``, or gate disabled.
+
+    ``max_frac < 0`` or ``max_frac >= 1`` disables the gate (always True).
+    """
+    mf = float(max_frac)
+    if mf < 0.0 or mf >= 1.0 - 1e-15:
+        return True
+    if int(n_candidates) <= 0:
+        return True
+    return skip_unreachable_frac(n_skip_unreachable, n_candidates) <= mf + 1e-15
+
+
 def plan_result_is_executable(traj: Any) -> bool:
     """Return True when a ``PlannedTrajectory``-like object may drive the arm.
 

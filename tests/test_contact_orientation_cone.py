@@ -35,12 +35,12 @@ def test_cone_stays_within_tolerance_of_normal() -> None:
 
 
 def test_cone_stays_under_honest_gate_tolerance() -> None:
-    """A ~17deg cone must not exceed the 35deg tip-face gate tolerance."""
+    """A ~12.6deg cone must not exceed the ≈15deg tip-face gate tolerance."""
     from isaac_sim.target_marker import TARGET_MARKER_TOOL_AXIS_TOL_RAD
 
     normal = np.array([1.0, 0.2, 0.1])
     normal = normal / np.linalg.norm(normal)
-    quats = contact_orientation_cone(normal, cone_max_rad=0.30, n_tilts=2, n_azimuths=4)
+    quats = contact_orientation_cone(normal, cone_max_rad=0.22, n_tilts=2, n_azimuths=4)
     for q in quats:
         assert (
             tool_axis_alignment_error_rad(q, normal)

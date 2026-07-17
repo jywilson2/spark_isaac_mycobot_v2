@@ -468,8 +468,91 @@ planner replace `q_final = q_ik + clamp(Δq)`.
 **Requirement (default when `contact_axis_enabled: true`):**
 
 1. **Approach with tip spheres ON** to an oriented standoff along the sphere normal (`contact_standoff_m` outside the surface). Tool +Z faces the sphere (pad toward marker).
-2. **Omit tip spheres only** for a **bounded axial nudge** from that standoff onto the pierce point (`contact_nudge_m` ≤ `contact_nudge_max_m`). After a recovery via, the tip-omit segment is capped by `contact_via_nudge_max_m` — kept **short** (≈ `contact_nudge_max_m`) on purpose: a long tip-omit move with spheres off lets the EE barrel sweep **through** the marker. Larger start→pierce gaps must be closed by a spheres-ON approach to the standoff, then only the short nudge (long tip-omit is refused → `contact_nudge_direct_refused`).
+2. **Omit tip spheres only** for a **bounded axial nudge** from that standoff onto the pierce point (`contact_nudge_m` ≤ `contact_nudge_max_m`). After a recovery via, the tip-omit segment is capped by `contact_via_nudge_max_m` — kept **short** (≈ `contact_nudge_max_m`) on purpose: a long tip-omit move with spheres off lets the EE barrel sweep **through** the marker or hit it from the side/back. Larger start→pierce gaps must be closed by a spheres-ON approach to the standoff, then only the short nudge (long tip-omit is refused → `contact_nudge_direct_refused`). Do **not** use a multi-centimeter tip-omit fallback after approach failure. Tip-omit after a failed approach also requires FK pad-axis alignment; skip-near starts that are not pad-aligned must reseat with spheres ON first.
 3. Green contact requires tip-face center on the pierce **and** tool-axis alignment with the approach ray.
+
+### EE-only surface contact (non-negotiable success criteria)
+
+A countable episode is **PLAN_OK** only when **all** of the following hold at the
+settled pose (authoritative; a transient green flash is never enough):
+
+1. **EE tip-face pad center** contacts the **surface** of the target marker
+   (middle of the circular contact area on the approach pierce — not the EE
+   barrel/side, not the far hemisphere / through-sphere, and **not immersed**
+   into the sphere volume). Enforced by `classify_tip_contact`
+   (`side_graze` / `through` / `immersed` / `wrong_side_axis` → fail). The tip
+   must lie in a thin surface shell
+   `[radius − inner_tol, radius + outer_tol]` — colliding *into* the sphere is
+   not success.
+2. **No proximal arm link** (base→forearm / non-EE capsules) may intersect the
+   target marker volume mid-path (`MARKER_ARM_SWEEP`) or at settle
+   (`PLAN_FAIL(arm_body_contact)`). Planning uses an inflated marker obstacle
+   (`target_obstacle_inflate_m`) and a longer spheres-ON standoff
+   (`contact_standoff_m`) so the approach clears the visual sphere.
+3. Contact is with the **marker surface only** (tip-face pad), not immersion of
+   the marker into the EE interior / wrong side of the flange.
+
+### Mandatory contact failure conditions (frozen for experiments)
+
+These outcomes are **always countable failures** for Phase 2 viz / smoke rate
+gates. They must **not** be removed, relaxed into “warnings only,” or redefined
+as success in future experiments, parameter sweeps, tip-omit tweaks, residual
+learning, or RL work. Widening tip-omit, axis/pad tolerances, or tip-sphere omit
+lists to chase greens is **forbidden** when it would accept any row below.
+
+| Failure condition | When it fires | Result tag / log | Must remain a failure |
+|-------------------|---------------|------------------|------------------------|
+| **Tip through sphere** | Tip on far hemisphere along approach (`through`) | `MARKER_THROUGH` → settle / nearest-reason `PLAN_FAIL` | Yes — never green |
+| **Tip-face side graze** | Lateral offset > tip-face pad (`side_graze`) | `MARKER_SIDE_GRAZE` | Yes — mid-path **and** settle |
+| **EE side/barrel axis** | Tool +Z ⟂ outward normal (`wrong_side_axis`, ~90°) | `MARKER_WRONG_SIDE` | Yes — mid-path **and** settle |
+| **EE back / flipped** | Tool +Z toward center (`wrong_side_axis`, ~180°) | `MARKER_WRONG_SIDE` | Yes — mid-path **and** settle |
+| **Immersed / submerged tip** | Tip inside volume deeper than inner shell (`immersed`) | `MARKER_IMMERSED` → `PLAN_FAIL(immersed)` | Yes — not surface contact |
+| **No valid tip-face contact** | PLAN path OK but tip never valid contact | `MARKER_NO_CONTACT` → `PLAN_FAIL(no_contact)` | Yes — reclassify; never keep PLAN_OK |
+| **Invalid settle after green** | Settled `classify_tip_contact` fails after green flash | `CONTACT_INVALID_SETTLE` → `PLAN_FAIL(invalid_side\|immersed)` | Yes — flash ≠ success |
+| **Mid-path side/back graze latch** | Any mid-path `side_graze` or `wrong_side_axis` during approach | `CONTACT_INVALID_MIDPATH_GRAZE` → `PLAN_FAIL(invalid_side)` | Yes — **even if** tip later greens / settle tip-point looks OK |
+| **Settled EE side collision spheres** | Non-tip (barrel/flange/proximal) mesh spheres ∩ marker at settle | `MARKER_EE_SIDE_SPHERE` → `PLAN_FAIL(invalid_side)` | Yes — tip-omit must not hide EE-body hits |
+| **Proximal arm sweep / settle** | Non-EE arm capsules ∩ marker mid-path or settle | `MARKER_ARM_SWEEP` / `MARKER_ARM_BODY` → `PLAN_FAIL(arm_body_contact)` | Yes — EE tip-face exclusive |
+
+**Mid-path latch (non-negotiable).** `MARKER_SIDE_GRAZE` / `MARKER_WRONG_SIDE` are
+**not** advisory. They latch `mid_path_side_or_back` (same pattern as
+`arm_swept`). A later `MARKER_CONTACT` green **must not** clear that latch.
+Settle reports `CONTACT_INVALID_MIDPATH_GRAZE` → `PLAN_FAIL(invalid_side)`.
+Warn-only mid-path grazing that still ends `PLAN_OK` is a **spec violation**.
+
+**Tolerance floor (do not loosen below without a new explicit spec revision):**
+`TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≤ ≈15° (0.26 rad),
+`TARGET_MARKER_TIP_FACE_RADIUS_M` ≤ 4 mm,
+`TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M` ≤ 2 mm. Prior ≈35° / 10 mm / 4 mm
+limits produced false greens (operator-visible side/back contact).
+
+### Via recovery vs `SKIPPED_UNREACHABLE`
+
+| Outcome | When |
+|---------|------|
+| **`SKIPPED_UNREACHABLE`** | Target is **outside** the Dexterous Region geometric shell only. Does **not** consume a countable episode. |
+| **Via standoffs** | Target is **in** the Dexterous Region but the direct oriented contact plan fails — recovery tries progressive standoffs / seed bank / reposition until `plan_recovery_timeout_s`. |
+| **`PLAN_FAIL`** | In-region target that still cannot reach valid tip-face surface contact after recovery, **or** any row in **Mandatory contact failure conditions** (mid-path graze latch, invalid settle, immersed, arm-body, EE side spheres, no_contact reclassify, …). |
+
+Orientation-limited in-region targets are **never** declared unreachable — they
+must use vias / recovery.
+
+### cuRobo vs classical / oracle IK
+
+**Keep cuRobo MotionGen as the collision-aware path planner** on Spark. Classical
+/ oracle IK (Phase 1 DLS, Pinocchio, future IKFast/TRAC-IK) answers “is there a
+joint vector for this pose?” — it does **not** produce a collision-free joint
+path. Replacing cuRobo with oracle IK alone would reintroduce arm–marker
+sweeps. Preferred stack:
+
+```text
+oracle / Pinocchio  →  seed + dexterity / Dexterous-Region gate
+cuRobo MotionGen    →  collision-aware approach + short tip-omit contact
+classify / tip-face gate → accept / PLAN_FAIL / no motion
+```
+
+These rules address the recurring operator defects logged in `docs/last_prompt.md`
+(wrong-side EE, through-sphere green, side-of-EE graze, immersion). They are
+**not** optional viz cosmetics — they define success.
 
 **Honest contact gate + detection (`classify_tip_contact`).** The red→green
 gate classifies each EE tip sample and turns green **only** for a valid
@@ -477,14 +560,14 @@ tip-face contact. It explicitly detects and rejects the failure modes that were
 previously counted as success:
 
 - `through` — the tip crossed to the **far hemisphere** along the approach axis (signed axial position from center > `TARGET_MARKER_THROUGH_PENETRATION_TOL_M`). "Moved through the sphere" is never green.
-- `side_graze` — contact off the tip-face pad (lateral offset > `TARGET_MARKER_TIP_FACE_RADIUS_M`).
-- `wrong_side_axis` — the flange +Z is not aligned with the **outward** normal. The check is now **signed** (`axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ 35°, *not* folded), so it rejects both the **side/barrel** contact (`axis_out ≈ 90°`) and the **flipped/back** contact where +Z points toward the center (`axis_out ≈ 180°`). The flipped case is the "marker turns green but touches the EE from the inside/back" defect the earlier folded check accepted. **Sign convention (empirical):** commanding the contact pose with +Z inward makes cuRobo `IK_FAIL` (0 green); the reachable, visually-correct contacts measure `axis_out ≈ 0–7°`, so the planner commands +Z along the outward normal and the gate requires `axis_out` small. `contact_geometry`'s +Z is opposite the URDF/FK tool +Z — confirm against the physical flange before hardware.
+- `side_graze` — contact off the tip-face pad (lateral offset > `TARGET_MARKER_TIP_FACE_RADIUS_M`, currently **4 mm**).
+- `wrong_side_axis` — the flange +Z is not aligned with the **outward** normal. The check is now **signed** (`axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ **15°**, *not* folded), so it rejects both the **side/barrel** contact (`axis_out ≈ 90°`) and the **flipped/back** contact where +Z points toward the center (`axis_out ≈ 180°`). The flipped case is the "marker turns green but touches the EE from the inside/back" defect the earlier folded check accepted. A prior ≈35° / 10 mm gate let false greens through (axis_out 25–32°, lat ≈8 mm); limits now match historical honest greens (`axis_out` ≲ 15°, small lateral, tip within **2 mm** of the surface via `TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M`). **Sign convention (empirical):** commanding the contact pose with +Z inward makes cuRobo `IK_FAIL` (0 green); the reachable, visually-correct contacts measure `axis_out ≈ 0–7°`, so the planner commands +Z along the outward normal and the gate requires `axis_out` small. `contact_geometry`'s +Z is opposite the URDF/FK tool +Z — confirm against the physical flange before hardware.
 
-**Authoritative final-pose check.** The live green during motion is visual only; after the hold the **settled** pose is re-classified, and a green that settles wrong-side/through is overridden to `CONTACT_INVALID_SIDE` → `PLAN_FAIL(invalid_side)`. A transient green flash never counts as success.
+**Authoritative final-pose check.** The live green during motion is visual only; after the hold the **settled** pose is re-classified (`classify_tip_contact`), and a green that settles wrong-side/through/immersed is overridden to `CONTACT_INVALID_SETTLE` → `PLAN_FAIL(invalid_side|immersed)`. Additionally, mesh-fitted collision spheres at `q_settled` are scanned (`settle_has_side_sphere_hits`): tip-zone hits are allowed at contact, but any **side** sphere ∩ marker → `MARKER_EE_SIDE_SPHERE` → `PLAN_FAIL(invalid_side)`. A transient green flash never counts as success. Mid-path `side_graze` / `wrong_side_axis` latch settle failure (`CONTACT_INVALID_MIDPATH_GRAZE`) — see **Mandatory contact failure conditions** above; these rows are frozen for experiments.
 
 **Repeated-via pressure (math).** `ViaPressureTracker` quantifies the repeated need for vias across consecutive episodes: via-usage EMA `E_i = α·u_i + (1−α)·E_{i−1}` with `u_i = 1[via_i ≥ 1]` and `α = 0.5`, a via-count EMA `A_i`, and a consecutive-via streak `S_i`. `VIA_PRESSURE_HIGH` fires when `E_i ≥ 0.6` **and** `S_i ≥ 3` — a systematic wrong-sided-approach signal (unit-tested in `tests/test_viz_plan_fail_closed.py`).
 
-The viz instruments these as `MARKER_CONTACT / MARKER_THROUGH / MARKER_SIDE_GRAZE / MARKER_WRONG_SIDE` (with measured dist/penetration/lateral/`axis_in`/`axis_out`), `CONTACT_INVALID_SIDE`, `VIA_PRESSURE` / `VIA_PRESSURE_HIGH`, plus `EE_CLOSE` (tip starts within a short shell of the surface) and `HIGH_RETRY_WHEN_CLOSE` (a close start that needs ≥ `HIGH_RETRY_VIA_THRESHOLD` standoff vias — the back-off-then-approach cost). `MARKER_NO_CONTACT` reports the nearest sample's reason so a reclassified PLAN_FAIL is attributable.
+The viz instruments these as `MARKER_CONTACT / MARKER_THROUGH / MARKER_SIDE_GRAZE / MARKER_WRONG_SIDE` / `MARKER_IMMERSED` (with measured dist/penetration/lateral/`axis_in`/`axis_out`), `CONTACT_INVALID_SETTLE` / `CONTACT_INVALID_MIDPATH_GRAZE` / `MARKER_EE_SIDE_SPHERE`, `VIA_PRESSURE` / `VIA_PRESSURE_HIGH`, plus `EE_CLOSE` (tip starts within a short shell of the surface) and `HIGH_RETRY_WHEN_CLOSE` (a close start that needs ≥ `HIGH_RETRY_VIA_THRESHOLD` standoff vias — the back-off-then-approach cost). `MARKER_NO_CONTACT` reports the nearest sample's reason so a reclassified PLAN_FAIL is attributable.
 
 4. Viz must **not** drive toward the marker-center IK solution (`trial.q_sol`) after PLAN_OK — that reintroduces side immersion. The `CONTACT_HOLD` step performs a short **axial refine to the pierce** point (near surface), not a center-drive.
 
@@ -507,19 +590,27 @@ complementary mechanisms address this honestly:
    CI falls back to NumPy DLS.
    - **Position/reach-unreachable** targets are always `SKIPPED_UNREACHABLE`
      and **excluded from the PLAN_OK gate**.
-   - **Orientation-infeasible** targets are skipped when the Pinocchio backend
-     is selected (`plan_prescreen_skip_orientation_infeasible: null` → auto).
-     With the NumPy fallback, orientation skip stays **off** (plain DLS
-     over-skips). The prescreen must never be used to fake a 1.0 rate.
+   - **`SKIPPED_UNREACHABLE` only outside the Dexterous Region.** In-region
+     orientation-limited targets use vias / recovery (`plan_prescreen_skip_orientation_infeasible: false`).
    - "**Dexterous Region**" = the interior reach shell
      `[min_reach + margin, max_reach − margin]` (`configs/robot/workspace.yaml`,
      `dexterous_region_margin_m`).
+   - **Episode counting:** a `SKIPPED_UNREACHABLE` (or overlapping-target skip)
+     does **not** consume a countable episode slot. `--visualize N` means
+     **N planned episodes** (`PLAN_OK` / `PLAN_FAIL`), filled from a larger
+     candidate pool (prefer Dexterous Region first).
+   - **Skip-rate gate:** fail the smoke when
+     `skip_unreachable / candidates_considered > max_skip_unreachable_frac`
+     (default `0.25` in `collision.yaml`; override
+     `--max-skip-unreachable-frac` / `ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC`).
+     A high skip fraction means the sampler is wasting budget outside the
+     dexterous workspace — not an acceptable “green” run.
 2. **Bounded orientation cone (`contact_orientation_cone`).** When the exact
    outward-normal contact pose `IK_FAIL`s, `try_oriented_tip_face_contact` tries
    a small cone of pad-facing tool-axis directions (exact normal first, then
    tilts ≤ `contact_orientation_cone_max_rad` at `…_azimuths`). Every candidate
    stays **within the honest gate tolerance** (`axis_out ≤
-   TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ 35°), so this gives cuRobo a reachable
+   TARGET_MARKER_TOOL_AXIS_TOL_RAD` ≈ 15°), so this gives cuRobo a reachable
    wrist **without** accepting side/through contacts. The chosen cone orientation
    is threaded into the tip-omit nudge.
 3. **Planning budget (`configs/planning/collision.yaml`).** `curobo_max_attempts`
@@ -552,6 +643,11 @@ The analysis is **printed in the prompt output** *and* **appended to
 
 ### GUI smoke / verification policy (non-negotiable)
 
+GUI smoke (`./scripts/host/smoke_isaac_viz.sh --gui`) enables a **translucent
+collision-sphere overlay** by default (`--show-collision-spheres`; amber =
+proximal arm, cyan = tip-omit links). Same mesh-fitted spheres cuRobo uses.
+Disable with `ISAAC_VIZ_SHOW_COLLISION_SPHERES=0` or `--no-show-collision-spheres`.
+
 1. The required Spark GUI test (`./scripts/run_verification.sh spark` → `smoke_isaac_viz.sh --gui`) **must** reset to home **only for the first episode** (session start).
 2. It **must not** return to home between subsequent episodes.
 3. CLI default is `--no-reset-to-home` (`parser.set_defaults(reset_to_home=False)`). YAML default is `reset_to_home_before_each_trial: false`.
@@ -560,11 +656,12 @@ The analysis is **printed in the prompt output** *and* **appended to
 ### GUI test log / warning format (monitoring contract)
 
 1. **Via-waypoint warning:** when a target is unreachable by a direct plan and is only reached through intermediate standoff waypoint(s) (`strategy=via_standoff*`), the viz must emit `VIA_WAYPOINT_USED …` at **warn** level so it appears as a warning in the Isaac Sim GUI (Kit **Window → Console** shows `carb.log_warn` in yellow).
-2. **Per-episode result line:** every episode ends with a grep-friendly line `[i/N] RESULT <PLAN_OK|PLAN_FAIL|PLAN_FAIL(no_contact)|SKIPPED|SKIPPED_UNREACHABLE|IK_FAIL> … | STATUS ok=.. fail=.. via=.. green=.. skip=.. rate=..` carrying the running totals for real-time monitoring (`rg 'RESULT|STATUS'` on a tailed log shows current health). A `SKIPPED_UNREACHABLE` line additionally carries `reason=.. in_region=.. radial_m=.. pos_err_m=.. ori_err_rad=.. orientations=.. axis=.. target=(x,y,z)` for the end-of-test analyzer.
-3. **Summary escalation:** the final `Phase 2 planning summary` includes `via=` / `skip=` / `skip_unreachable=` counts and is logged at warn level when any failure or via recovery occurred.
-4. Metrics JSON gains `phase2_via_waypoint_ok`, `phase2_skipped_targets`, and `phase2_skipped_unreachable`.
+2. **Per-episode result line:** every *countable* episode ends with a grep-friendly line `[i/N] RESULT <PLAN_OK|PLAN_FAIL|PLAN_FAIL(no_contact|invalid_side|immersed|arm_body_contact)> … | STATUS ok=.. fail=.. via=.. green=.. skip=.. episodes=i/N rate=..`. Skips use a `[cand k] RESULT SKIPPED…` / `SKIPPED_UNREACHABLE` label and **do not** increment `i`. A `SKIPPED_UNREACHABLE` line additionally carries `reason=.. in_region=.. radial_m=.. pos_err_m=.. ori_err_rad=.. orientations=.. axis=.. target=(x,y,z)` for the end-of-test analyzer. All rows in **Mandatory contact failure conditions** above map to a `PLAN_FAIL(…)` (or reclassified fail) — never silent success.
+3. **Summary escalation:** the final `Phase 2 planning summary` includes `via=` / `skip=` / `skip_unreachable=` / `skip_frac=` / `episodes=` / `candidates=` and is logged at warn level when any failure or via recovery occurred.
+4. Metrics JSON gains `phase2_via_waypoint_ok`, `phase2_skipped_targets`, `phase2_skipped_unreachable`, `phase2_skip_unreachable_frac`, `phase2_max_skip_unreachable_frac`, `phase2_countable_episodes`, `phase2_candidates_considered`.
 6. **End-of-test analysis:** after the summary, the `SKIPPED_UNREACHABLE` analysis block (per `## End-of-test SKIPPED_UNREACHABLE analysis`) is printed and appended to `STATUS.md`.
-5. Contracts tested in `tests/test_viz_status_format.py`.
+5. Contracts tested in `tests/test_viz_status_format.py` / `tests/test_skip_unreachable_gate.py`.
+6. **Collision-sphere overlay (GUI):** required GUI smoke enables translucent mesh-fitted spheres by default (`--show-collision-spheres`; amber=arm, cyan=tip-omit). Disable via `ISAAC_VIZ_SHOW_COLLISION_SPHERES=0` or `--no-show-collision-spheres`.
 
 Acceptance for sequential mode:
 
@@ -1446,6 +1543,22 @@ ros2 launch residual_adaptive_ik_ros residual_ik.launch.py mode:=validation_only
 - Agent/editor policy that is not a product requirement lives in [`.cursorrules`](.cursorrules).
 
 ---
+
+### Secondary docs push (STATUS / CHANGES / last_prompt)
+
+**Problem.** Primary code pushes often omit `STATUS.md`, `CHANGES.md`, and
+`docs/last_prompt.md` because those files are updated *after* the push (push
+status, end-of-test analysis, prompt log). Updating them again after a docs
+push restarts the lag.
+
+**Requirement.** After the primary code push:
+
+1. Finalize `STATUS.md` / `CHANGES.md` / `docs/last_prompt.md` once (include
+   push result / gate outcomes).
+2. Run `./scripts/git_secondary_docs_push.sh` (commits **only** those three
+   paths and pushes).
+3. Do **not** edit those three files again in the same agent turn after that
+   secondary push.
 
 # Documentation Maintenance
 

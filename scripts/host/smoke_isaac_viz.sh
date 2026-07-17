@@ -74,10 +74,16 @@ HOLD="${ISAAC_VIZ_SMOKE_HOLD_S:-${PHASE1_SMOKE_HOLD_S:-0.2}}"
 # Fail smoke when PLAN_OK rate is below threshold (YAML default 0.25).
 # Set ISAAC_VIZ_MIN_PLAN_OK_RATE=0 to disable (metrics-only / debugging).
 MIN_PLAN_OK_RATE="${ISAAC_VIZ_MIN_PLAN_OK_RATE:-}"
+# Fail when SKIPPED_UNREACHABLE / candidates exceeds this (YAML default 0.25).
+# Set ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC=1 to disable.
+MAX_SKIP_UNREACHABLE_FRAC="${ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC:-}"
 
 ARGS=(--skip-tests -- --num-poses "${N_POSES}" --visualize "${N_VIZ}" --hold-s "${HOLD}")
 if [[ -n "${MIN_PLAN_OK_RATE}" ]]; then
   ARGS+=(--min-plan-ok-rate "${MIN_PLAN_OK_RATE}")
+fi
+if [[ -n "${MAX_SKIP_UNREACHABLE_FRAC}" ]]; then
+  ARGS+=(--max-skip-unreachable-frac "${MAX_SKIP_UNREACHABLE_FRAC}")
 fi
 # CLI / env override for home reset.
 # Default: sequential multi-target (no per-trial home) — matches CLI/YAML and
@@ -118,6 +124,15 @@ else
   if [[ "${KEEP_OPEN}" != "1" ]]; then
     ARGS+=(--auto-exit)
   fi
+  # Show translucent mesh-fitted collision spheres (amber=arm, cyan=tip-omit).
+  # Override: ISAAC_VIZ_SHOW_COLLISION_SPHERES=0 or pass --no-show-collision-spheres.
+  SHOW_SPHERES="${ISAAC_VIZ_SHOW_COLLISION_SPHERES:-1}"
+  if [[ "${SHOW_SPHERES}" == "1" || "${SHOW_SPHERES}" == "true" ]]; then
+    ARGS+=(--show-collision-spheres)
+    echo "NOTE: collision-sphere overlay enabled (ISAAC_VIZ_SHOW_COLLISION_SPHERES=${SHOW_SPHERES})."
+  else
+    ARGS+=(--no-show-collision-spheres)
+  fi
 fi
 ARGS+=("${EXTRA[@]+"${EXTRA[@]}"}")
 
@@ -129,6 +144,12 @@ if [[ -n "${MIN_PLAN_OK_RATE}" ]]; then
 else
   echo "min_plan_ok_rate=(YAML default; override with ISAAC_VIZ_MIN_PLAN_OK_RATE)"
 fi
+if [[ -n "${MAX_SKIP_UNREACHABLE_FRAC}" ]]; then
+  echo "max_skip_unreachable_frac=${MAX_SKIP_UNREACHABLE_FRAC} (ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC)"
+else
+  echo "max_skip_unreachable_frac=(YAML default; override with ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC)"
+fi
+echo "NOTE: --visualize=${N_VIZ} is the countable-episode target (skips do not consume slots)."
 
 KEEP_PREP="${ISAAC_VIZ_SMOKE_KEEP_PREPARED:-${PHASE1_SMOKE_KEEP_PREPARED:-0}}"
 if [[ "${KEEP_PREP}" == "1" ]]; then

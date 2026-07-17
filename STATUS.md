@@ -1,6 +1,265 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-17** (headless planning parity + Pinocchio dexterous-workspace gate)
+Last updated: **2026-07-17** (autonomous long-GUI iteration — in progress)
+
+## Autonomous long-GUI iteration (2026-07-17 ~13:20+)
+
+**Goal:** long-duration GUI smoke (`visualize=48`, `min_plan_ok_rate=1.0`) with
+**zero** `PLAN_FAIL`, early-abort on first fail (`--early-abort-after-fails 1`).
+After each smoke: update this file, **commit + push `wip_phase3`**.
+
+**Frozen failures** (spec.md): mid-path side/back graze latch, settle invalid,
+immersed, EE side spheres, arm body — must stay `PLAN_FAIL`.
+
+**Iter1 change (pre-smoke):** tip-omit segment prefers **DLS-IK + joint lerp**
+(`plan_axial_tip_omit_lerp`) instead of free cuRobo tip-omit MotionGen (curved
+paths caused mid-path `SIDE_GRAZE` then false greens). Config: standoff/nudge
+**12 mm**, inflate approach obstacle **6 mm**, tip-omit cap **14 mm**,
+`contact_axis_tolerance_rad` **0.26**.
+
+| Iter | Smoke | Outcome | Next |
+|------|-------|---------|------|
+| 0 | (pending) | — | headless early-abort then GUI viz=48 |
+
+## Spec freeze — contact failures (2026-07-17)
+
+`spec.md` § **Mandatory contact failure conditions (frozen for experiments)**
+lists through / side_graze / side-barrel / back / immersed / no_contact /
+invalid settle / mid-path graze latch / EE side spheres / arm body as
+**non-removable** `PLAN_FAIL` cases for future experiments. Do not widen
+tip-omit or tip-face tols to chase greens past that table.
+
+## False-green tip-face tighten (2026-07-17 ~13:00)
+
+**Problem:** Last tip-omit-cap smoke reported 8/8 green, but almost every
+`MARKER_CONTACT` was loose (axis_out 15–32°, lateral up to 8 mm, tip 2–4 mm
+short of the surface). Mid-path already logged `SIDE_GRAZE` / `WRONG_SIDE` on
+some episodes, yet settle still counted PLAN_OK — false greens under the old
+≈35° / 10 mm / 4 mm outer gate.
+
+**Fix (deployed):**
+- `TARGET_MARKER_TOOL_AXIS_TOL_RAD` **0.26** (≈15°)
+- `TARGET_MARKER_TIP_FACE_RADIUS_M` **0.004** (4 mm)
+- `TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M` **0.002** (2 mm)
+- Settle volumetric check: YAML collision spheres at `q_settled` via
+  `settle_has_side_sphere_hits` — any **side** hit →
+  `CONTACT_INVALID_SETTLE` / `MARKER_EE_SIDE_SPHERE` →
+  `PLAN_FAIL(invalid_side)`. Tip-zone hits alone remain allowed.
+
+**Policy:** do not widen tip-omit or axis tol to recover greens. Prefer
+spheres-ON reseat / vias. Honest `PLAN_FAIL(invalid_side)` is expected until
+approaches stop grazing.
+
+**Verification:** unit tip-face + marker_contact_diag; then headless contact
+iter + short GUI viz=8 (this change set).
+
+| Run | Outcome |
+|-----|---------|
+| Unit (`test_target_marker` / `marker_contact_diag` / cone / viz contracts) | **34 passed** |
+| Headless `run_headless_contact_iter` (viz=8, warp=4) | **gate FAIL** `ok=7 fail=1 rate=0.875` — Ep2 `PLAN_FAIL(invalid_side)` settle `wrong_side_axis` axis_out=**18°** (would have been false-green under ≈35°) |
+| GUI short (viz=8, warp=1, spheres ON) | **gate FAIL** `ok=7 fail=1 rate=0.875` — same honest Ep2 `PLAN_FAIL(invalid_side)` axis_out=18° |
+
+Logs: `/tmp/headless_false_green.log`, `/tmp/gui_false_green.log`.
+Do **not** widen tip-omit / axis tol to chase 1.0 — remaining miss is an
+honest settle reject of a side-leaning contact.
+
+## Tip-omit regression fix (2026-07-17 ~12:49)
+
+**Problem:** ≤60 mm tip-omit after spheres-ON approach failure let MotionGen
+(with tip spheres off) swing the EE into the marker from the side/back before
+the pad was aligned.
+
+**Fix (deployed):**
+- Tip-omit allow = `min(contact_nudge_max_m, contact_via_nudge_max_m)` only
+  (≈12 mm) — no multi-cm fallback.
+- After approach fail: require FK pad alignment as well as short length.
+- Skip-near without a successful pad-facing approach: reseat spheres-ON or refuse.
+- Unit: `tests/test_tip_omit_gates.py`.
+
+**Verification (2026-07-17 ~12:53–12:56)** — *superseded as false-green* by the
+tighten above; historical rates below used the loose tip-face gate:
+| Run | Outcome |
+|-----|---------|
+| Headless `run_headless_contact_iter` (viz=8, warp=4) | **PASSED** `ok=8 green=8 rate=1.0` (false-green) |
+| GUI short (viz=8, warp=1, spheres ON) | **PASSED** `ok=8 green=8 via=1 rate=1.0` (false-green) |
+
+Logs: `/tmp/headless_tipomit_cap_outer.log`, `/tmp/gui_tipomit_cap_outer.log`,
+host `assets/logs/isaac_host/isaac_viz_metrics_20260717_125304.log` /
+`…_125425.log`. Mid-path transient `MARKER_SIDE_GRAZE` / `WRONG_SIDE` still
+appeared — settle gate was too loose (fixed above).
+
+## Headless contact iteration (2026-07-17 ~12:18–12:25)
+
+**Method:** headless Kit (`--headless`), `time_warp=4`, `--early-abort-after-fails 3`,
+no collision-sphere overlay, `ISAAC_VIZ_RECOVERY_TIMEOUT_S=45`. Live `DEC|…`
+decision lines streamed from `/tmp/headless_contact_iter*.log`.
+
+**Knobs restored toward known-good tip-face stack**
+- `contact_standoff_m` / `contact_nudge_m` = **8 mm**
+- `target_obstacle_inflate_m` = **0.0**
+- Tip-omit fallback allow after approach fail: **≤ `contact_nudge_max_m`** (was briefly 60 mm — reverted; caused side/back EE hits)
+- Arm-sweep monitor: `arm_sweep_link_radius_m: 0.012` (was using fat 25 mm)
+
+**Results**
+| Run | Outcome |
+|-----|---------|
+| iter1 (8 mm, inflate 0, fat arm capsules) | `ok=7 fail=1` — sole fail `PLAN_FAIL(arm_body_contact)` |
+| iter2 (+ thin arm-sweep) | **PASSED** `ok=8 fail=0 green=8 rate=1.000` |
+
+**Logging:** `DEC|contact_begin|approach_ok/fail|tip_omit_*|recovery_*` emitted live
+via `decision_emit` during recovery (grep `DEC|` in host metrics / smoke log).
+
+## GUI monitor + tip-face / sphere-viz analysis (2026-07-17 ~12:08)
+
+**This GUI run** (`isaac_viz_metrics_20260717_120011.log`): Kit stopped after
+**2× PLAN_FAIL**, `ok=0 green=0`, rate gate FAILED. Episodes burned ~90 s each
+on `contact_approach_q*: IK_FAIL` + tip-omit refuse. Loop ended because
+`simulation_app.is_running()` went false after PLAN_FAIL hold (now logged as
+`GUI_STOP`; also added `--early-abort-after-fails` default **3**).
+
+### Are misaligned collision spheres the cause of PLAN_FAIL?
+
+**No.** The translucent overlay is **debug-only** (USD prims under
+`/World/CollisionSpheresDebug`). cuRobo MotionGen uses its own CUDA kinematics
++ the same YAML spheres — not the overlay. Overlay spheres placed via NumPy
+URDF FK can look off the **visual** mesh contour when Isaac USD applies mesh
+visual origins differently; that is a viz fidelity bug, not the planner.
+
+Evidence from this log: failures are `MotionGenStatus.IK_FAIL` on oriented
+standoff approach and `contact_nudge_direct_refused` (tip still 10–36 cm out) —
+pure planning/contact-stack, independent of the overlay.
+
+### What actually started the fragile failures?
+
+Commits that raised the success bar from "tip near/in volume" → **tip-face
+center on the surface along the approach axis**:
+
+| Commit | Change |
+|--------|--------|
+| `e219fa4` | Tip-face contact + lateral pad gate; progressive vias |
+| `4cfaf89` | Tip-face required for success; harden to 1.0 rate gate |
+
+Before that, green could fire on immersion / side grazes. After tip-face (and
+later surface-shell / immersed reject), MotionGen must solve a **pad-facing
+oriented standoff** then a short tip-omit pierce — much tighter. The recent
+standoff/inflate knobs made that IK wall worse; the tip-face requirement is the
+historical inflection point the operator identified.
+
+**Next:** restore contact IK feasibility (visual-radius tip-omit, moderate
+standoff lockstep) **without** relaxing the tip-face / surface-shell gate.
+
+## Collision-sphere GUI overlay (2026-07-17)
+
+**Option:** `--show-collision-spheres` (+ `--collision-sphere-opacity`, default
+0.35). Draws the same mesh-fitted spheres cuRobo uses under
+`/World/CollisionSpheresDebug` (amber = arm, cyan = tip-omit / flange).
+
+**GUI testing:** `./scripts/host/smoke_isaac_viz.sh --gui` enables the overlay
+by default (`ISAAC_VIZ_SHOW_COLLISION_SPHERES=1`). Headless stays off unless
+explicitly requested. Disable with `=0` or `--no-show-collision-spheres`.
+
+## GUI log analysis — surface/arm change-set smoke (2026-07-17 ~11:20–11:37)
+
+**Runs**
+- Earlier same morning (`gui_smoke_skipgate16d`, standoff/nudge **8 mm**, no inflate):
+  **PASSED** `ok=16 fail=0` — but greens measured `dist≈19.5 mm` (tip short of /
+  outside the 12 mm surface; old outer_tol=8 mm still accepted).
+- After surface-shell + arm-sweep + **standoff 20 mm** + **planning inflate 8 mm**
+  (`gui_smoke_surface12` / host `…104417.log`): **FAILED**
+  `ok=0 fail=7…` (12-ep short) and a parallel long run also at **rate=0**.
+
+**Dominant failure pattern (every episode)**
+1. `contact_approach_q0…q9:plan_failed:MotionGenStatus.IK_FAIL` — spheres-ON
+   oriented approach to the standoff never solves.
+2. `contact_nudge_direct_refused:dist=0.10…0.36 > allow=0.024…0.032` — tip is
+   still ~10–36 cm from pierce, so the short tip-omit nudge is correctly refused.
+3. Recovery moves to a via (`via1_…:ok`) then repeats the same contact_approach
+   IK_FAIL loop until `recovery_timeout` (~90 s) → yellow `PLAN_FAIL`.
+4. `skip_unreachable=0` — Dexterous Region skip policy is working; failures are
+   **in-region planning**, not “declared unreachable.”
+5. Rare `PLAN_OK` then `MARKER_IMMERSED` / `MARKER_THROUGH` / `MARKER_WRONG_SIDE`
+   → `PLAN_FAIL(no_contact)` (host ep 34): tip path goes *into* the volume /
+   wrong axis — the new surface-shell gate correctly rejects what used to look
+   green at `dist≈19 mm`.
+
+**Speculation (root cause)**
+The contact stack was tightened for visual honesty (surface touch + arm clear)
+in a way that **over-constrained cuRobo MotionGen**:
+- Inflating the planning marker (~12+8=20 mm) while still commanding pierce on
+  the **visual** 12 mm surface makes wrist/arm spheres fight the inflated OBB
+  on the tip-omit / near-standoff poses → wall of `IK_FAIL`.
+- Raising `contact_standoff_m` 8→20 mm without a matching way to close the
+  gap (tip-omit allow stays ~24–32 mm) means after a via the tip often sits
+  ~100 mm out → nudge refused → timeout.
+- So the GUI looks “stuck yellow”: vias move the arm, but the **final pad-facing
+  contact IK never converges**.
+
+**Not the issue**
+- Sampler declaring everything unreachable (skip_frac=0).
+- Rate gate math (denominator is planned episodes; 0/7 is honest).
+
+**Likely fix direction**
+1. Inflate **only** for spheres-ON approach; tip-omit uses visual radius
+   (deflate `ik_target` for `contact_planner`) — partially started in
+   `recovery.py`.
+2. Keep standoff moderate (~12–15 mm) or raise tip-omit allow in lockstep.
+3. Keep surface-shell / immersed reject — that part matches the operator
+   complaint; do not relax it to get greens back.
+
+## Surface-shell contact + arm-sweep + via-only-in-region (2026-07-17)
+
+**Operator issues:** arm side still clips the marker on approach; tip immerses
+into the sphere instead of touching the surface; unclear via vs unreachable.
+
+**Policy answers**
+- **Via vs unreachable:** `SKIPPED_UNREACHABLE` **only** if outside the
+  Dexterous Region. In-region → vias / recovery → `PLAN_FAIL` if still hard.
+- **cuRobo vs oracle IK:** keep **cuRobo MotionGen** for collision-aware paths;
+  use oracle / Pinocchio to **seed** and for the Dexterous Region gate. Replacing
+  cuRobo with oracle IK alone would drop path collision checking.
+
+**Code**
+- Surface shell gate (`immersed` reject); mid-path `MARKER_ARM_SWEEP`.
+- Longer spheres-ON standoff (20 mm) + planning obstacle inflate (8 mm).
+- Orientation skip disabled (`plan_prescreen_skip_orientation_infeasible: false`).
+
+## Skip-unreachable gate + EE-only contact + countable episodes (2026-07-17)
+
+**Problem.** Full GUI runs reported `skip_unreachable≈22/48` (~46%) while still
+passing `PLAN_OK rate=1.0` — too many sampler misses, and skips were labeled as
+`[i/N]` “episodes.”
+
+**Changes**
+1. **`max_skip_unreachable_frac: 0.25`** gate (`collision.yaml`, CLI/env). Fail
+   when `SKIPPED_UNREACHABLE / candidates_considered` exceeds the cap.
+2. **Countable episodes:** `--visualize N` fills **N** `PLAN_OK`/`PLAN_FAIL`
+   episodes from a larger candidate pool. Skips use `[cand k]` and do **not**
+   consume episode slots. Prefer Dexterous Region candidates first.
+3. **EE-only settle check:** `proximal_arm_contacts_target` →
+   `PLAN_FAIL(arm_body_contact)` if any non-EE capsule intersects the marker.
+   Tip-face middle-of-pad / surface-only rules reaffirmed in `spec.md` § EE-only
+   surface contact.
+4. **Secondary docs push:** after a primary code push, finalize
+   `STATUS.md` / `CHANGES.md` / `docs/last_prompt.md` once, then
+   `./scripts/git_secondary_docs_push.sh` — and **stop editing those three**
+   in the same turn (see `.cursorrules` / `spec.md`).
+
+### Regression? (vs `docs/last_prompt.md` tip-face / through-sphere / wrong-side)
+
+**Not a tip-face contact regression.** `classify_tip_contact` (middle of tip
+pad, reject `side_graze` / `through` / `wrong_side_axis`) and the authoritative
+settled-pose override remain in place from the 2026-07-16 fixes. The high
+`skip_unreachable` count was from the **new** geometric Dexterous Region
+prescreen (2026-07-17), which correctly excluded edge samples — but counting
+them as episodes and lacking a skip-rate gate hid sampler waste. Proximal
+arm-body contact was previously planning-enforced only; the settle-time
+`MARKER_ARM_BODY` check closes that monitor gap (not a rollback of tip-face).
+
+**Verification (short GUI `visualize=16`, strict 1.0):** **PASSED** —
+`ok=16 fail=0 skip_unreachable=0 skip_frac=0.000 episodes=16/16
+candidates=19 marker_green=16`. Dexterous-Region-first candidate order kept
+skips at 3 overlapping-only (not unreachable). Proximal arm settle check uses
+distal-EE ignore (3 capsules) so valid tip-face contacts are not false-failed.
 
 ## Headless planning parity + Pinocchio dexterous-workspace gate (2026-07-17)
 
@@ -398,3 +657,219 @@ Details: [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md) §
 ## Related docs
 
 - [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md) · [docs/phase2_geometry.md](docs/phase2_geometry.md) · [README.md](README.md) · [spec.md](spec.md)
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 10:02 -0700)
+
+22 target(s) skipped as unreachable; **0 within the Dexterous Region** (orientation-limited, via speculation below), 22 genuine workspace-edge.
+
+(These are excluded from the PLAN_OK gate denominator; 19 target(s) were planned.)
+
+### Skipped #1 — target (0.036, -0.237, 0.080) (radial 0.253 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.253 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #2 — target (0.114, -0.200, 0.152) (radial 0.276 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.276 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #3 — target (0.136, -0.230, 0.158) (radial 0.310 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.310 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #4 — target (-0.034, -0.239, 0.218) (radial 0.325 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.325 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #5 — target (-0.049, 0.245, 0.163) (radial 0.298 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.298 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #6 — target (-0.079, 0.094, 0.217) (radial 0.250 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.250 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #7 — target (-0.198, -0.042, 0.197) (radial 0.282 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.282 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #8 — target (0.086, -0.232, 0.196) (radial 0.316 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.316 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #9 — target (0.039, -0.139, 0.208) (radial 0.253 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.253 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #10 — target (0.039, -0.181, 0.157) (radial 0.243 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.243 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #11 — target (0.066, 0.245, 0.181) (radial 0.312 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.312 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #12 — target (-0.128, 0.173, 0.169) (radial 0.274 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.274 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #13 — target (-0.118, -0.187, 0.182) (radial 0.286 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.286 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #14 — target (-0.183, 0.183, 0.208) (radial 0.332 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.332 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #15 — target (0.102, 0.243, 0.153) (radial 0.305 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.305 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #16 — target (-0.174, -0.090, 0.154) (radial 0.249 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.249 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #17 — target (-0.001, -0.186, 0.174) (radial 0.254 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.254 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #18 — target (0.093, 0.216, 0.088) (radial 0.251 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.251 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #19 — target (0.032, 0.152, 0.203) (radial 0.255 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.255 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #20 — target (0.096, -0.166, 0.216) (radial 0.289 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.289 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #21 — target (0.279, -0.004, 0.159) (radial 0.321 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.321 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+### Skipped #22 — target (-0.212, -0.024, 0.149) (radial 0.261 m)
+
+- **Classification:** `outside_dexterous_region` (in_region=0)
+- **Why (speculation):** Target radial 0.261 m is outside the geometric Dexterous Region (interior reach shell). Near-envelope targets routinely IK_FAIL the oriented contact plan in cuRobo even when a collision-free joint solution exists in isolation — correctly excluded from the PLAN_OK gate as sampler optimism, not a planner fault.
+- **Deterministic-IK via:** none — target is beyond the dexterous reach; a via cannot add reach. Exclude honestly.
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 10:31 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 10:34 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 11:37 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 11:39 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 11:54 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 12:03 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 12:23 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 12:25 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 12:32 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 12:54 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 12:56 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:05 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:08 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+

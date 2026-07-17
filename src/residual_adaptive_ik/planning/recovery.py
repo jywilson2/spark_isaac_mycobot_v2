@@ -54,13 +54,16 @@ from typing import Callable, Sequence
 import numpy as np
 
 from residual_adaptive_ik.geometry.collision import SphereObstacle
-from residual_adaptive_ik.kinematics.fk import forward_kinematics
+from residual_adaptive_ik.kinematics.fk import Pose, forward_kinematics
 from residual_adaptive_ik.kinematics.ik_seed_bank import (
     build_seed_bank,
     joint_distance_rad,
     order_seeds,
 )
-from residual_adaptive_ik.kinematics.numerical_ik import load_joint_limits_rad
+from residual_adaptive_ik.kinematics.numerical_ik import (
+    DampedLeastSquaresIK,
+    load_joint_limits_rad,
+)
 from residual_adaptive_ik.kinematics.urdf_model import UrdfKinematicModel, get_default_model
 from residual_adaptive_ik.planning.curobo_planner import (
     CuRoboMotionPlanner,
@@ -72,8 +75,10 @@ from residual_adaptive_ik.planning.curobo_planner import (
 from residual_adaptive_ik.planning.contact_geometry import (
     build_sphere_contact_approach,
     contact_orientation_cone,
+    tool_axis_alignment_error_rad,
     validate_axial_contact_segment,
 )
+from residual_adaptive_ik.planning.joint_path import interpolate_joint_path
 
 
 def contact_orientation_candidates(
@@ -105,6 +110,107 @@ def contact_orientation_candidates(
 
 # Called as ``execute_waypoints(waypoints_rad, dt_s)`` to move the arm mid-recovery.
 ExecuteWaypointsFn = Callable[[np.ndarray, float], None]
+# Live decision-point log for viz/smoke (one short line per branch).
+DecisionEmitFn = Callable[[str], None]
+
+
+def _decision(
+    emit: DecisionEmitFn | None,
+    log: list[str],
+    message: str,
+) -> None:
+    """Record a grep-friendly decision line (``DEC|…``) for live monitoring."""
+    line = f"DEC|{message}"
+    log.append(line)
+    if emit is not None:
+        try:
+            emit(line)
+        except Exception:
+            pass
+
+
+def tip_omit_length_allow_m(cfg: dict, *, nudge_max_m: float) -> float:
+    """Hard Cartesian cap for any tip-omit segment (meters).
+
+    Always ``contact_nudge_max_m`` (or the caller’s clipped ``nudge_max``).
+    Never expand to multi-centimeter “finish from far” windows — long tip-omit
+    with flange spheres off lets the EE barrel hit the marker from the side/back
+    (spec.md Tip-face contact planning).
+    """
+    via_cap = float(cfg.get("contact_via_nudge_max_m", nudge_max_m))
+    # Via and direct share the same short axial budget.
+    return float(min(max(1e-4, float(nudge_max_m)), max(1e-4, via_cap)))
+
+
+def plan_axial_tip_omit_lerp(
+    q_start_rad: np.ndarray,
+    pierce_position_m: np.ndarray,
+    quaternion_wxyz: np.ndarray,
+    *,
+    model: UrdfKinematicModel,
+    dt_s: float = 0.02,
+    n_samples: int = 12,
+) -> PlannedTrajectory:
+    """Short tip-omit standoff→pierce via DLS-IK + joint lerp (not MotionGen).
+
+    Why
+    ---
+    cuRobo tip-omit ``plan_to_pose`` with tip spheres off can take a free
+    curved path that swings the tip through a side_graze / wrong_side sample
+    before the pierce — mid-path latch then PLAN_FAIL even when settle looks
+    fine. A seeded IK + short joint lerp keeps Δq small and approximately
+    axial (spec.md Mandatory contact failure conditions).
+    """
+    q0 = _clamp_joints(np.asarray(q_start_rad, dtype=float).reshape(6))
+    pose_tgt = Pose(
+        position_m=np.asarray(pierce_position_m, dtype=float).reshape(3),
+        quaternion_wxyz=np.asarray(quaternion_wxyz, dtype=float).reshape(4),
+    )
+    ik = DampedLeastSquaresIK.from_config(model=model)
+    sol = ik.solve(pose_tgt, seed_q=q0)
+    if not sol.success:
+        return PlannedTrajectory(
+            waypoints_rad=np.zeros((0, 6)),
+            dt_s=float(dt_s),
+            success=False,
+            backend="axial_lerp",
+            message=f"plan_failed:axial_ik|{sol.reason}",
+        )
+    q1 = _clamp_joints(np.asarray(sol.q, dtype=float).reshape(6))
+    wp = interpolate_joint_path(q0, q1, n_samples=max(2, int(n_samples)))
+    return PlannedTrajectory(
+        waypoints_rad=wp,
+        dt_s=float(dt_s),
+        success=True,
+        backend="axial_lerp",
+        message="ok|axial_tip_omit_lerp",
+    )
+
+
+def fk_pad_aligned_for_tip_omit(
+    q_rad: np.ndarray,
+    normal_outward: np.ndarray,
+    *,
+    model: UrdfKinematicModel,
+    cfg: dict,
+) -> tuple[bool, float, float]:
+    """Return ``(ok, axis_err_rad, tol_rad)`` for tip-omit eligibility.
+
+    Tip-omit may run only when FK tool +Z already faces the outward approach
+    ray within the tip-face / orientation-cone tolerance. Side- or back-facing
+    wrists must reseat with spheres ON (or via) — never tip-omit first.
+    """
+    pose = forward_kinematics(q_rad, model=model)
+    axis_tol = float(cfg.get("contact_axis_tolerance_rad", 0.35))
+    if bool(cfg.get("contact_orientation_cone_enabled", True)):
+        cone_max = float(cfg.get("contact_orientation_cone_max_rad", 0.30))
+        axis_tol = min(axis_tol, cone_max)
+    err = float(
+        tool_axis_alignment_error_rad(
+            pose.quaternion_wxyz, normal_outward
+        )
+    )
+    return err <= axis_tol + 1e-9, err, axis_tol
 
 
 def tip_standoff_on_approach(
@@ -560,12 +666,20 @@ def try_oriented_tip_face_contact(
     execute_waypoints: ExecuteWaypointsFn | None = None,
     strategy_tag: str = "direct_contact",
     attempts_log: list[str] | None = None,
+    decision_emit: DecisionEmitFn | None = None,
 ) -> PlannedTrajectory | None:
     """Spheres-on approach to oriented standoff, then tip-omit axial nudge.
 
     Returns a successful ``PlannedTrajectory`` or ``None`` if either leg fails.
     Tip/flange collision spheres stay active until the short final nudge
     (``contact_planner`` must use ``omit_tip_links=True``).
+
+    Tip-omit is refused unless Cartesian length ≤ ``contact_nudge_max_m``.
+    After a failed spheres-ON approach (or skip-near without a pad-facing
+    command), FK tool +Z must already face the outward normal — otherwise
+    reseat with spheres ON or refuse. Long tip-omit fallbacks (e.g. ≤60 mm)
+    are intentionally not used — they let the EE barrel hit the marker from
+    the side/back.
     """
     mdl = model or get_default_model()
     cfg = load_planning_config()
@@ -581,6 +695,28 @@ def try_oriented_tip_face_contact(
         standoff_m = nudge_max
     log = attempts_log if attempts_log is not None else []
     obs = list(obstacles or [])
+    # Tip-omit contact must use the *visual* marker radius. If the caller
+    # inflated ``ik_target`` for the spheres-ON approach, deflate it here so
+    # wrist spheres are not fighting an oversize OBB at the pierce point.
+    inflate = float(cfg.get("target_obstacle_inflate_m", 0.0))
+    obs_contact = list(obs)
+    if inflate > 1e-9 and obs:
+        from residual_adaptive_ik.geometry import SphereObstacle
+
+        obs_contact = []
+        for o in obs:
+            name = str(getattr(o, "name", "") or "")
+            if name.startswith("ik_target"):
+                r = max(1e-4, float(o.radius_m) - inflate)
+                obs_contact.append(
+                    SphereObstacle(
+                        center_m=np.asarray(o.center_m, dtype=float).reshape(3),
+                        radius_m=r,
+                        name=name,
+                    )
+                )
+            else:
+                obs_contact.append(o)
     q_cur = _clamp_joints(q_start_rad)
     pose0 = forward_kinematics(q_cur, model=mdl)
     tip0 = np.asarray(pose0.position_m, dtype=float).reshape(3)
@@ -603,6 +739,18 @@ def try_oriented_tip_face_contact(
     dist_to_standoff = float(
         np.linalg.norm(tip0 - approach.standoff_position_m)
     )
+    tip_to_pierce0 = float(np.linalg.norm(tip0 - approach.pierce_position_m))
+    obs_r = float(obs[0].radius_m) if obs else float("nan")
+    contact_r = float(obs_contact[0].radius_m) if obs_contact else float("nan")
+    _decision(
+        decision_emit,
+        log,
+        f"contact_begin tag={strategy_tag} standoff_m={standoff_m:.3f} "
+        f"nudge_m={nudge_m:.3f} inflate_m={inflate:.3f} "
+        f"obs_r_m={obs_r:.4f} contact_r_m={contact_r:.4f} "
+        f"tip_to_standoff_m={dist_to_standoff:.3f} "
+        f"tip_to_pierce_m={tip_to_pierce0:.3f}",
+    )
     # Already near the oriented standoff — skip the spheres-on approach leg.
     if dist_to_standoff > 0.004:
         pose_now = forward_kinematics(q_cur, model=mdl)
@@ -611,6 +759,12 @@ def try_oriented_tip_face_contact(
         # side/through contact. See ``contact_orientation_candidates``.
         quat_candidates = contact_orientation_candidates(
             approach, fallback_quaternion_wxyz=pose_now.quaternion_wxyz, cfg=cfg
+        )
+        _decision(
+            decision_emit,
+            log,
+            f"approach_leg n_ori={len(quat_candidates)} "
+            f"(spheres_ON → standoff)",
         )
         leg_ap = None
         for qi, quat_try in enumerate(quat_candidates):
@@ -626,67 +780,122 @@ def try_oriented_tip_face_contact(
             if leg_ap.ok:
                 quat = np.asarray(quat_try, dtype=float).reshape(4)
                 chosen_quat = quat.copy()
+                _decision(
+                    decision_emit,
+                    log,
+                    f"approach_ok q{qi} backend={leg_ap.backend}",
+                )
                 break
+            # First + last failure only — avoid spamming every cone tilt.
+            if qi == 0 or qi == len(quat_candidates) - 1:
+                _decision(
+                    decision_emit,
+                    log,
+                    f"approach_fail q{qi}/{len(quat_candidates)-1} "
+                    f"msg={leg_ap.message}",
+                )
         if leg_ap is None or not leg_ap.ok:
-            # Last resort: tip-omit to pierce when already near (direct) or after
-            # a recovery via left the tip outside the short axial window.
+            # Last resort: tip-omit only when already inside the short axial
+            # window AND the pad already faces the marker. Long tip-omit
+            # (historically ≤60 mm) lets MotionGen swing the EE barrel into
+            # the sphere from the side/back. Prefer vias / spheres-ON reseat.
             tip_far = float(np.linalg.norm(tip0 - approach.pierce_position_m))
-            via_nudge_max = float(
-                cfg.get("contact_via_nudge_max_m", max(0.10, nudge_max))
+            allow_m = tip_omit_length_allow_m(cfg, nudge_max_m=nudge_max)
+            aligned, axis_err, axis_tol = fk_pad_aligned_for_tip_omit(
+                q_cur,
+                approach.normal_outward,
+                model=mdl,
+                cfg=cfg,
             )
-            allow_m = (
-                via_nudge_max
-                if "via" in str(strategy_tag)
-                else (nudge_max + 0.008)
+            _decision(
+                decision_emit,
+                log,
+                f"approach_all_failed → tip_omit_fallback "
+                f"tip_far_m={tip_far:.3f} allow_m={allow_m:.3f} "
+                f"axis_err_rad={axis_err:.3f} axis_tol_rad={axis_tol:.3f} "
+                f"pad_aligned={int(aligned)}",
             )
-            if tip_far <= allow_m:
-                for qi, quat_try in enumerate(quat_candidates):
+            if tip_far > allow_m + 1e-9:
+                log.append(
+                    f"contact_nudge_direct_refused:dist={tip_far:.3f}"
+                    f">allow={allow_m:.3f}"
+                )
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_refused tip_far_m={tip_far:.3f}"
+                    f">allow_m={allow_m:.3f}",
+                )
+                return None
+            if not aligned:
+                log.append(
+                    f"contact_nudge_direct_refused:pad_misaligned:"
+                    f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}"
+                )
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_refused_orientation "
+                    f"axis_err_rad={axis_err:.3f}>tol_rad={axis_tol:.3f}",
+                )
+                return None
+            for qi, quat_try in enumerate(quat_candidates):
+                leg_nudge = plan_axial_tip_omit_lerp(
+                    q_cur,
+                    approach.pierce_position_m,
+                    quat_try,
+                    model=mdl,
+                    dt_s=last_dt,
+                )
+                if not leg_nudge.ok:
+                    # Fallback: tip-omit MotionGen (may graze — last resort).
                     leg_nudge = contact_planner.plan_to_pose(
                         q_cur,
                         approach.pierce_position_m,
                         quat_try,
                         max_attempts=max(1, int(max_attempts)),
-                        obstacles=obs,
+                        obstacles=obs_contact,
                     )
-                    log.append(
-                        f"contact_nudge_direct_q{qi}:dist={tip_far:.3f}|"
-                        f"{leg_nudge.message}"
+                log.append(
+                    f"contact_nudge_direct_q{qi}:dist={tip_far:.3f}|"
+                    f"{leg_nudge.message}"
+                )
+                if leg_nudge.ok:
+                    _decision(
+                        decision_emit,
+                        log,
+                        f"tip_omit_direct_ok q{qi} dist_m={tip_far:.3f} "
+                        f"backend={leg_nudge.backend}",
                     )
-                    if leg_nudge.ok:
-                        wp_nudge = np.asarray(
-                            leg_nudge.waypoints_rad, dtype=float
+                    wp_nudge = np.asarray(
+                        leg_nudge.waypoints_rad, dtype=float
+                    )
+                    if execute_waypoints is not None:
+                        execute_waypoints(
+                            wp_nudge, float(leg_nudge.dt_s)
                         )
-                        if execute_waypoints is not None:
-                            execute_waypoints(
-                                wp_nudge, float(leg_nudge.dt_s)
-                            )
-                            q_hold = _clamp_joints(wp_nudge[-1])
-                            return _ok(
-                                q_hold.reshape(1, 6),
-                                dt_s=float(leg_nudge.dt_s),
-                                message=(
-                                    f"ok|strategy={strategy_tag}|"
-                                    f"contact_standoff_m={standoff_m:.3f}|"
-                                    f"contact_nudge_m={tip_far:.3f}|"
-                                    f"already_executed"
-                                ),
-                                backend=leg_nudge.backend,
-                            )
+                        q_hold = _clamp_joints(wp_nudge[-1])
                         return _ok(
-                            wp_nudge,
+                            q_hold.reshape(1, 6),
                             dt_s=float(leg_nudge.dt_s),
                             message=(
                                 f"ok|strategy={strategy_tag}|"
                                 f"contact_standoff_m={standoff_m:.3f}|"
-                                f"contact_nudge_m={tip_far:.3f}"
+                                f"contact_nudge_m={tip_far:.3f}|"
+                                f"already_executed"
                             ),
                             backend=leg_nudge.backend,
                         )
-            else:
-                log.append(
-                    f"contact_nudge_direct_refused:dist={tip_far:.3f}"
-                    f">allow={allow_m:.3f}"
-                )
+                    return _ok(
+                        wp_nudge,
+                        dt_s=float(leg_nudge.dt_s),
+                        message=(
+                            f"ok|strategy={strategy_tag}|"
+                            f"contact_standoff_m={standoff_m:.3f}|"
+                            f"contact_nudge_m={tip_far:.3f}"
+                        ),
+                        backend=leg_nudge.backend,
+                    )
             return None
         waypoints_approach = np.asarray(leg_ap.waypoints_rad, dtype=float)
         q_cur = _clamp_joints(waypoints_approach[-1])
@@ -696,6 +905,11 @@ def try_oriented_tip_face_contact(
         tip0 = np.asarray(approach.standoff_position_m, dtype=float).reshape(3)
     else:
         log.append("contact_approach:skipped_near_standoff")
+        _decision(
+            decision_emit,
+            log,
+            f"approach_skip_near tip_to_standoff_m={dist_to_standoff:.3f}",
+        )
 
     # Rebuild approach from the (planned or measured) tip so pierce stays axial.
     approach = build_sphere_contact_approach(
@@ -762,15 +976,105 @@ def try_oriented_tip_face_contact(
         log.append(
             f"contact_nudge_refused:dist={tip_to_pierce:.4f}>max={nudge_max:.4f}"
         )
+        _decision(
+            decision_emit,
+            log,
+            f"tip_omit_refused_after_approach tip_to_pierce_m={tip_to_pierce:.3f}"
+            f">nudge_max_m={nudge_max:.3f}",
+        )
         return None
 
-    leg_nudge = contact_planner.plan_to_pose(
+    # Hard orientation gate when we did *not* just complete a pad-facing
+    # spheres-ON approach (``chosen_quat`` set). Skip-near-standoff starts can
+    # be side/back-facing — reseat with spheres ON or refuse tip-omit.
+    # After a successful approach, the commanded quat is pad-facing by
+    # construction; MotionGen owns FK fidelity of that leg.
+    if chosen_quat is None:
+        aligned, axis_err, axis_tol = fk_pad_aligned_for_tip_omit(
+            q_cur,
+            approach.normal_outward,
+            model=mdl,
+            cfg=cfg,
+        )
+        if not aligned:
+            reseat_quat = quat
+            leg_ori = planner.plan_to_pose(
+                q_cur,
+                approach.standoff_position_m,
+                reseat_quat,
+                max_attempts=max(1, int(max_attempts)),
+                obstacles=obs,
+            )
+            log.append(
+                f"contact_reseat_orientation:{leg_ori.message}|"
+                f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}"
+            )
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_pad_misaligned → reseat_spheres_ON "
+                f"axis_err_rad={axis_err:.3f} tol_rad={axis_tol:.3f} "
+                f"ok={int(leg_ori.ok)}",
+            )
+            if not leg_ori.ok:
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_refused_orientation "
+                    f"axis_err_rad={axis_err:.3f}>tol_rad={axis_tol:.3f}",
+                )
+                return None
+            wp_ori = np.asarray(leg_ori.waypoints_rad, dtype=float)
+            waypoints_approach = (
+                wp_ori
+                if waypoints_approach is None
+                else _concat_waypoints(waypoints_approach, wp_ori)
+            )
+            q_cur = _clamp_joints(wp_ori[-1])
+            tip0 = np.asarray(approach.standoff_position_m, dtype=float).reshape(3)
+            last_dt = float(leg_ori.dt_s)
+            # Approach reseat commanded pad-facing orientation — allow tip-omit
+            # (same trust as a successful approach leg). Record FK for logs.
+            aligned2, axis_err2, axis_tol2 = fk_pad_aligned_for_tip_omit(
+                q_cur,
+                approach.normal_outward,
+                model=mdl,
+                cfg=cfg,
+            )
+            chosen_quat = np.asarray(reseat_quat, dtype=float).reshape(4)
+            quat = chosen_quat
+            if not aligned2:
+                log.append(
+                    f"contact_reseat_orientation_fk_warn:"
+                    f"axis_err={axis_err2:.3f}>tol={axis_tol2:.3f}"
+                )
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_after_reseat_cmd_ok "
+                    f"fk_axis_err_rad={axis_err2:.3f} tol_rad={axis_tol2:.3f}",
+                )
+
+    leg_nudge = plan_axial_tip_omit_lerp(
         q_cur,
         approach.pierce_position_m,
         quat,
-        max_attempts=max(1, int(max_attempts)),
-        obstacles=obs,
+        model=mdl,
+        dt_s=last_dt,
     )
+    if not leg_nudge.ok:
+        _decision(
+            decision_emit,
+            log,
+            f"axial_tip_omit_ik_fail → curobo_tip_omit ({leg_nudge.message})",
+        )
+        leg_nudge = contact_planner.plan_to_pose(
+            q_cur,
+            approach.pierce_position_m,
+            quat,
+            max_attempts=max(1, int(max_attempts)),
+            obstacles=obs_contact,
+        )
     log.append(
         f"contact_nudge:standoff_m={standoff_m:.3f}|nudge_m={nudge_m:.3f}|"
         f"{leg_nudge.message}"
@@ -837,6 +1141,7 @@ def plan_via_standoff(
     timeout_s: float = 15.0,
     deadline_monotonic: float | None = None,
     execute_waypoints: ExecuteWaypointsFn | None = None,
+    decision_emit: DecisionEmitFn | None = None,
 ) -> PlannedTrajectory:
     """Retry oriented tip-face contact + standoff vias until timeout.
 
@@ -955,6 +1260,13 @@ def plan_via_standoff(
         )
 
         # Preferred path: spheres-on approach + short tip-omit axial nudge.
+        _decision(
+            decision_emit,
+            attempts_log,
+            f"recovery_try_contact q_cycle tip_m="
+            f"({tip_start[0]:.3f},{tip_start[1]:.3f},{tip_start[2]:.3f}) "
+            f"elapsed_s={time.monotonic() - t0:.1f}",
+        )
         oriented = try_oriented_tip_face_contact(
             q_cur,
             sphere_center_m=center,
@@ -967,8 +1279,15 @@ def plan_via_standoff(
             execute_waypoints=execute_waypoints,
             strategy_tag="direct_contact",
             attempts_log=attempts_log,
+            decision_emit=decision_emit,
         )
         if oriented is not None and oriented.ok:
+            _decision(
+                decision_emit,
+                attempts_log,
+                f"recovery_contact_ok strategy=direct_contact "
+                f"elapsed_s={time.monotonic() - t0:.1f}",
+            )
             msg = (
                 f"{oriented.message}|partial_execs={partial_execs}|"
                 f"elapsed_s={time.monotonic() - t0:.2f}"
@@ -979,6 +1298,11 @@ def plan_via_standoff(
                 message=msg,
                 backend=oriented.backend,
             )
+        _decision(
+            decision_emit,
+            attempts_log,
+            "recovery_contact_failed → via_standoffs",
+        )
 
         # Legacy tip-omit full path only when oriented contact is disabled.
         if not bool(cfg.get("contact_axis_enabled", True)):
@@ -1169,6 +1493,7 @@ def plan_via_standoff(
                 execute_waypoints=execute_waypoints,
                 strategy_tag="via_contact",
                 attempts_log=attempts_log,
+                decision_emit=decision_emit,
             )
             if oriented is not None and oriented.ok:
                 if execute_waypoints is None:
@@ -1267,11 +1592,13 @@ def plan_collision_free_with_recovery(
     enable_recovery: bool | None = None,
     timeout_s: float | None = None,
     execute_waypoints: ExecuteWaypointsFn | None = None,
+    decision_emit: DecisionEmitFn | None = None,
 ) -> PlannedTrajectory:
     """Plan with optional standoff-via recovery (see ``plan_via_standoff``).
 
     ``execute_waypoints`` — when set (Isaac viz), successful via1 legs are
     executed immediately so the EE moves during the recovery budget.
+    ``decision_emit`` — optional live ``DEC|…`` callback for smoke monitoring.
     """
     from residual_adaptive_ik.planning.curobo_planner import plan_collision_free
 
@@ -1328,4 +1655,5 @@ def plan_collision_free_with_recovery(
         model=model,
         timeout_s=timeout,
         execute_waypoints=execute_waypoints,
+        decision_emit=decision_emit,
     )

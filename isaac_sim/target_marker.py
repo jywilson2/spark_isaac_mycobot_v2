@@ -35,15 +35,21 @@ TARGET_MARKER_EMISSIVE_YELLOW_RGB = (0.40, 0.35, 0.04)
 TARGET_MARKER_COLOR_RGB = TARGET_MARKER_COLOR_RED_RGB
 TARGET_MARKER_EMISSIVE_RGB = TARGET_MARKER_EMISSIVE_RED_RGB
 
-# Tip-to-center distance ≤ sphere radius ⇒ tip on or inside the marker volume.
+# Tip-to-center distance for the *surface shell* (meters). Success requires the
+# tip near the sphere *surface*, not immersed in the volume (operator: "touching
+# the surface, not colliding into it"). See classify_tip_contact.
 TARGET_MARKER_CONTACT_DISTANCE_M = TARGET_MARKER_RADIUS_M
-# Allow an outer shell so Isaac PD servo lag still counts as surface contact.
-# 8 mm covers typical shortfall after cuRobo contact-leg plans (was 3 mm).
-TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M = 0.008
+# Outer shell (tip short of the surface / servo lag) still counts as contact.
+# Kept tight (2 mm): a tip ~15 mm from center with a 12 mm radius is *not*
+# surface contact — that was a common false-green with the old 4 mm outer tol.
+TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M = 0.002
+# Inner shell: tip deeper than (radius − this) is *immersed* in the volume and
+# must not count as success (reject "colliding into" the sphere).
+TARGET_MARKER_SURFACE_CONTACT_INNER_TOL_M = 0.003
 # Max lateral offset (meters) from the approach axis for valid tip-face contact.
-# Rejects pure equator/side grazes (lateral ≈ sphere radius) while allowing
-# approaches up to ~56° off the ideal axis (sin(56°) × 12 mm ≈ 10 mm).
-TARGET_MARKER_TIP_FACE_RADIUS_M = 0.010
+# 4 mm pad rejects the prior false-green laterals (~8 mm) while still allowing
+# small servo lag on the tip face (historical honest greens had lat ≤ 0.5 mm).
+TARGET_MARKER_TIP_FACE_RADIUS_M = 0.004
 # Max tool-axis misalignment (radians) for a valid tip-face contact, measured
 # SIGNED against the OUTWARD normal (tip − center): the flange +Z must point
 # out along the approach ray (axis_out ≈ 0°). This rejects both "side of the
@@ -53,9 +59,10 @@ TARGET_MARKER_TIP_FACE_RADIUS_M = 0.010
 # the reachable, visually-correct contacts measure axis_out ≈ 0° (axis_in ≈
 # 180°), and commanding the inward sign makes cuRobo IK fail. Being signed
 # (not folded to [0, 90°]) is what rejects the flipped case the old gate
-# accepted. ~35° allows servo lag; NOTE this planning/FK +Z is the URDF
-# joint6_flange local Z (see contact_geometry frame-convention note).
-TARGET_MARKER_TOOL_AXIS_TOL_RAD = 0.611  # ≈ 35°
+# accepted. ≈15° matches historical honest greens (axis_out ≤ 7°) with a small
+# lag budget — the prior ≈35° gate let 25–32° side-leaning contacts green.
+# NOTE: planning/FK +Z is the URDF joint6_flange local Z (see contact_geometry).
+TARGET_MARKER_TOOL_AXIS_TOL_RAD = 0.26  # ≈ 15°
 # Penetration tolerance (meters) past the sphere center plane along the
 # approach axis. A valid tip-face contact stays on the *near* hemisphere; if
 # the tip crosses to the far side (signed axial distance from center > this),
@@ -106,6 +113,7 @@ def classify_tip_contact(
     *,
     contact_distance_m: float = TARGET_MARKER_CONTACT_DISTANCE_M,
     outer_tol_m: float = TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M,
+    inner_tol_m: float = TARGET_MARKER_SURFACE_CONTACT_INNER_TOL_M,
     approach_from_m: np.ndarray | None = None,
     tip_face_radius_m: float = TARGET_MARKER_TIP_FACE_RADIUS_M,
     ee_quaternion_wxyz: np.ndarray | None = None,
@@ -116,13 +124,12 @@ def classify_tip_contact(
 
     Why this exists
     ---------------
-    The bare distance check let two bad approaches count as "green":
-    (a) the sphere touches the **side/barrel** of the tool (tool axis ⟂ the
-    approach ray) rather than the tip pad, and (b) the tip drives **through**
-    the marker to the far hemisphere. Detecting these explicitly is what the
-    Phase 2 tip-face contact requirement is about (``spec.md`` tip-face
-    planning). This function returns the decision, a human reason, and the
-    measured metrics so the viz can log *why* a sample was accepted/rejected.
+    The bare distance check let bad approaches count as "green":
+    (a) the sphere touches the **side/barrel** of the tool, (b) the tip drives
+    **through** to the far hemisphere, and (c) the tip **immerses** into the
+    volume (colliding into the sphere) instead of touching the surface.
+    Detecting these is the Phase 2 tip-face / surface-contact requirement
+    (``spec.md``). Returns ``(decision, reason, metrics)``.
 
     Geometry (meters / radians)
     ---------------------------
@@ -148,13 +155,14 @@ def classify_tip_contact(
     Returns
     -------
     ``(is_contact, reason, metrics)`` where ``reason`` is one of
-    ``"ok" | "no_contact" | "through" | "side_graze" | "wrong_side_axis"`` and
-    ``metrics`` carries ``dist_m, penetration_m, lateral_m, axis_in_err_rad,
-    axis_out_err_rad, axis_line_err_rad``.
+    ``"ok" | "no_contact" | "immersed" | "through" | "side_graze" |
+    "wrong_side_axis"`` and ``metrics`` carries ``dist_m, penetration_m,
+    lateral_m, axis_in_err_rad, axis_out_err_rad, axis_line_err_rad``.
     """
     ee = np.asarray(ee_position_m, dtype=float).reshape(3)
     tgt = np.asarray(target_position_m, dtype=float).reshape(3)
     dist = float(np.linalg.norm(ee - tgt))
+    r = float(contact_distance_m)
     metrics: dict = {
         "dist_m": dist,
         "penetration_m": float("nan"),
@@ -163,8 +171,13 @@ def classify_tip_contact(
         "axis_out_err_rad": float("nan"),
         "axis_line_err_rad": float("nan"),
     }
-    if dist > float(contact_distance_m) + float(outer_tol_m):
+    if dist > r + float(outer_tol_m):
         return False, "no_contact", metrics
+    # Surface shell: tip deeper than (radius − inner_tol) is colliding *into*
+    # the sphere volume, not touching the surface.
+    if dist + 1e-12 < r - float(inner_tol_m):
+        metrics["penetration_m"] = r - dist  # depth into the volume (m)
+        return False, "immersed", metrics
 
     # Approach axis (start → center). When absent, fall back to the outward
     # radial through the tip so penetration is still measurable.
@@ -201,7 +214,8 @@ def classify_tip_contact(
         metrics["axis_in_err_rad"] = float(np.pi - err_out)
         metrics["axis_line_err_rad"] = float(min(err_out, np.pi - err_out))
 
-    # Legacy / unit callers without an approach ray or orientation: volume only.
+    # Legacy / unit callers without an approach ray or orientation: surface shell
+    # only (already enforced above).
     if approach_from_m is None and ee_quaternion_wxyz is None:
         return True, "ok", metrics
 

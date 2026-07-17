@@ -182,6 +182,32 @@ class UrdfKinematicModel:
             raise ValueError("q must contain only finite values")
         return q
 
+    def link_transforms(self, q: np.ndarray) -> dict[str, np.ndarray]:
+        """Return 4×4 base←link transforms for ``base_link`` and each chain child.
+
+        Used to place mesh-fitted collision spheres (centers stored in the
+        **link frame**) into the robot base / world frame for debug viz and
+        diagnostics. Units: meters / radians. See ``spec.md`` Phase 2.
+        """
+        q = self._validate_q(q)
+        q_map = dict(zip(self.revolute_names, q, strict=True))
+        out: dict[str, np.ndarray] = {self.base_link: np.eye(4, dtype=float)}
+        T = np.eye(4, dtype=float)
+        for joint in self.chain:
+            T = T @ joint.origin
+            if joint.joint_type == "revolute":
+                angle = q_map[joint.name]
+                R = _axis_angle_matrix(joint.axis, angle)
+                T_motion = np.eye(4, dtype=float)
+                T_motion[:3, :3] = R
+                T = T @ T_motion
+            elif joint.joint_type == "fixed":
+                pass
+            else:
+                raise NotImplementedError(f"unsupported joint type: {joint.joint_type}")
+            out[joint.child] = T.copy()
+        return out
+
     def forward_transforms(
         self, q: np.ndarray
     ) -> tuple[np.ndarray, list[tuple[np.ndarray, np.ndarray]]]:

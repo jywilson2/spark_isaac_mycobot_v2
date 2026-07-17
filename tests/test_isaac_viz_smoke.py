@@ -139,6 +139,9 @@ def test_smoke_isaac_viz_script_exists_and_documents_policy():
     assert "--no-reset-to-home" in text
     assert "ISAAC_VIZ_MIN_PLAN_OK_RATE" in text
     assert "--min-plan-ok-rate" in text
+    assert "ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC" in text
+    assert "--max-skip-unreachable-frac" in text
+    assert "countable-episode" in text
     # Default GUI smoke forces sequential mode (home once only).
     assert 'RESET_HOME="${ISAAC_VIZ_SMOKE_RESET_TO_HOME:-${PHASE1_SMOKE_RESET_TO_HOME:-0}}"' in text
     gui_src = Path(__file__).read_text(encoding="utf-8")

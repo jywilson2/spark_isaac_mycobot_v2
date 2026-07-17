@@ -1,5 +1,161 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-17 13:20 -0700
+I am going to leave you alone for awhile.
+
+Continue to iterate on this problem, until the long duration GUI test passes fully with no failures. Abort the test early if a failure occurs.
+
+After each test, commit, and push to wip_phase3, even if there is a test failure. I will use STATUS.md to monitor progress remotely.
+
+Good luck!
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-17 13:16 -0700
+Make certain that all of these failure conditions are added to @spec.md to prevent removing them as a failure case in future experiments.
+## END
+
+## BEGIN: 2026-07-17 13:10 -0700
+I saw many side grazing approaches to the target. Why weren't these recorded as failures?
+## END
+
+## BEGIN: 2026-07-17 13:00 -0700
+Build
+## END
+
+## BEGIN: 2026-07-17 12:58 -0700
+Nearly every episode in this last test demonstrated side/barrel or back contact.
+## END
+
+## BEGIN: 2026-07-17 12:57 -0700
+Verify that the tests are able to fail on target approaches that penetrate the side or back of the EE, or submerge the surface of the EE when contacting the target.
+## END
+
+## BEGIN: 2026-07-17 12:49 -0700
+Contact approach: spheres, tip-omit, and alternatives
+
+Implement the plan as specified, it is attached for your reference. Do NOT edit the plan file itself.
+
+To-do's from the plan have already been created. Do not create them again. Mark them as in_progress as you work, starting with the first one. Don't stop until you have completed all the to-dos.
+## END
+
+## BEGIN: 2026-07-17 12:42 -0700
+The arm motion on visual inspection is still problematic:
+
+The EE collides with the target from the sides and back, before the surface of the EE is aligned with the target. It seems deactivating the collision spheres in the final approach has caused a different problem.
+
+The use of collision spheres does not seem to be working, and it is computationally heavy since it realizes on IK to formulate a path.
+
+Is there another alternative? Are collision spheres required to assure that other parts of the arm (non EE parts) do *not* collide with the sphere on approach?
+## END
+
+## BEGIN: 2026-07-17 12:35 -0700
+Be sure that all background streaming log terminals are killed, before each test cycle.  Add this to .cursorrules.
+## END
+
+## BEGIN: 2026-07-17 12:34 -0700
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+## BEGIN: 2026-07-17 12:32 -0700
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+## BEGIN: 2026-07-17 12:29 -0700
+Run a short GUI test with visualization.
+## END
+
+## BEGIN: 2026-07-17 12:25 -0700
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+## BEGIN: 2026-07-17 12:18 -0700
+Okay, let's continue then. Continue to iterate on the issue.
+
+Use the GUI testing without visualization and time warping if that will help speed testing.  Also, keep the early abort enabled.
+
+Stream the log file in a separate terminal and enhance logging output to make decision points visible.
+## END
+
+## BEGIN: 2026-07-17 12:12 -0700
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+## BEGIN: 2026-07-17 12:08 -0700
+Monitor the progress of the GUI test and abort it early if the target is not reached in a few episodes.
+
+Some collision spheres do not appear near the contour of the arm. Could this be the reason for the failed GUI tests?
+
+Analyze past commits and you will see that the frailures began occuring when the requirement for contact between the center of the EE and the surface of the target sphere, was added.
+## END
+
+## BEGIN: 2026-07-17 11:59 -0700
+Execute testing and iterate as necessary.
+
+When all tests pass, commit and push to wip_phase3 on github.
+## END
+
+## BEGIN: 2026-07-17 11:55 -0700
+Can you create an option that makes the collision spheres visible with transparency? If so, then enable this option for GUI testing with visualization.
+## END
+
+## BEGIN: 2026-07-17 11:52 -0700
+What does the term "tip-omit" mean?
+## END
+
+## BEGIN: 2026-07-17 11:44 -0700
+Elaborate on this:
+
+" inflate only for spheres-ON approach; tip-omit uses the visual radius; keep standoff and tip-omit allow in lockstep (~12–15 mm or raise allow with standoff). That split is already partly started in recovery.py."
+
+What does this mean in terms of the kinematics of movement?
+## END
+
+## BEGIN: 2026-07-17 11:40 -0700
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+## BEGIN: 2026-07-17 11:39 -0700
+Analyze the logs for the GUI test and speculate on the issue.
+## END
+
+## BEGIN: 2026-07-17 10:40 -0700
+In the visualization, I still see the target colliding with the side of the arm before reaching the EE.
+
+Also, the EE is not touching the surface of the taget sphere. It is colliding with it.
+
+When are via's used to reach the target, versus declaring the target unreachable? A target should only be declared unreachable if it is outside the dexterous region.
+
+Is cuRobo the right IK to use? Would it make more sense to use the oracle IK and replace cuRobo, if it converges more consistently?
+## END
+
+
+## BEGIN: 2026-07-17 10:23 -0700
+The number of skip_unreachable target's is too high. Add a testing gate for an unacceptably high percentage of unreachable targets.
+
+If a target is unreachable it should not be included in the overall count of episodes.
+
+Can you verify that only targets which do no passs through the arm in some way before reaching the contact surface of the EE, are considered a success? In other words, no part of the arm should make contact with the surface of target except the EE and should be considered a test failure if it does.
+
+Also contact with the target by the EE, should occur in the middle of the contact area of the EE and only the surface of the target. Verify that this is clearly indicated in @spec.md .
+
+The last two paragraphs have been an issue before (see @docs/last_prompt.md . Is this a regression?
+
+When a push to github occurs several files are generally left out, such as last_prompt.md, STATUS.md, and CHANGES.md. Since these are the last files to be updated and are often updated with the status of the push to github, a secondary push to github should occur in a manner that does not cause the yet another update to these files.
+## END
+
+
+## BEGIN: 2026-07-17 10:09 -07:00
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+
+## BEGIN: 2026-07-17 10:08 -07:00
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
+## END
+
+
 ## BEGIN: 2026-07-17 09:45 -07:00
 Change the configuration of headless (non GUI) testing to include everything the GUI testing does, except the visualization. If it makes sense to do so, accelerate the time warp factor since no human is actually viewing the results when headless mode is active.
 
@@ -8,7 +164,6 @@ Implement the dexterous-workspace gate using the library you think is best.
 Iterate using GUI testing to allow me to check-in on the result. If all tests pass, commit to wip_phase3, push to github, rebase on main, and push to github. Remain on the wip_phase3 branch.
 ## END
 
-# Old prompts:
 
 ## BEGIN: 2026-07-17 09:36 -07:00
 When you say cuRobo seeds, what does this mean? What is a "seed" in this context?

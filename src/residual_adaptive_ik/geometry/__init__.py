@@ -11,6 +11,7 @@ from residual_adaptive_ik.geometry.collision import (
     check_config_collision,
     link_capsules_from_q,
     point_segment_distance_m,
+    proximal_arm_contacts_target,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "check_config_collision",
     "link_capsules_from_q",
     "point_segment_distance_m",
+    "proximal_arm_contacts_target",
 ]

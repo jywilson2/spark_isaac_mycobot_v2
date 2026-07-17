@@ -274,8 +274,11 @@ def contact_pose_is_dexterous(
     base = np.asarray(base_position_m, dtype=float).reshape(3)
     radius = float(sphere_radius_m)
     backend_resolved = resolve_prescreen_backend(backend)
+    # Operator policy (spec.md): SKIPPED_UNREACHABLE is only for targets
+    # outside the Dexterous Region. In-region orientation limits use vias /
+    # recovery → PLAN_FAIL, never skip-as-unreachable. Default False.
     if skip_orientation_infeasible is None:
-        skip_orientation_infeasible = backend_resolved == "pinocchio"
+        skip_orientation_infeasible = False
     if solver is None:
         solver = build_prescreen_solver(
             position_tol_m=position_tol_m,

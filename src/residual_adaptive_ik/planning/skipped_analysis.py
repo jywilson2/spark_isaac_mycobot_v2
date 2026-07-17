@@ -222,6 +222,9 @@ def analyze_and_report(
         try:
             existing = p.read_text(encoding="utf-8") if p.exists() else ""
             p.write_text(existing + "\n\n" + md + "\n", encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as exc:
+            # Common on Spark: STATUS.md owned by root while Kit runs as the
+            # host user — silent pass hid missing analysis appends.
+            if print_fn is not None:
+                print_fn(f"WARNING: could not append SKIPPED_UNREACHABLE analysis to {p}: {exc}")
     return md

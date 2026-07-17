@@ -147,3 +147,47 @@ def check_config_collision(
             if capsule_sphere_collide(cap, obs):
                 reasons.append(f"{cap.name}_vs_{obs.name}")
     return CollisionReport(collides=len(reasons) > 0, reasons=tuple(reasons))
+
+
+def proximal_arm_contacts_target(
+    q: np.ndarray,
+    target_center_m: np.ndarray,
+    *,
+    target_radius_m: float,
+    model: UrdfKinematicModel | None = None,
+    link_radius_m: float = 0.018,
+    n_ee_segments_ignored: int = 3,
+    name: str = "ik_target",
+) -> CollisionReport:
+    """True when a **proximal** (non-EE) link capsule intersects the target.
+
+    Success requires contact with the target **only** at the EE tip-face pad
+    (spec.md Phase 2 tip-face / EE-only contact). Base / upper-arm / elbow
+    capsules intersecting the marker volume is a hard failure.
+
+    Why ignore the last ``n_ee_segments_ignored`` capsules (default 3)
+    -----------------------------------------------------------------
+    Coarse serial capsules near the wrist/flange (``seg_{n-3..}``) routinely
+    overlap a 12 mm tip-contact sphere even on a *valid* pad approach — the
+    18–25 mm tutorial radii are intentionally fat. Ignoring the distal EE
+    chain keeps the settle monitor focused on genuine arm-body immersions
+    (paths that sweep the forearm/upper arm through the marker).
+    """
+    obstacle = SphereObstacle(
+        center_m=np.asarray(target_center_m, dtype=float).reshape(3),
+        radius_m=float(target_radius_m),
+        name=str(name),
+    )
+    capsules = link_capsules_from_q(
+        q, model=model, link_radius_m=float(link_radius_m)
+    )
+    n_ignore = max(0, int(n_ee_segments_ignored))
+    if n_ignore > 0 and len(capsules) > n_ignore:
+        capsules = capsules[:-n_ignore]
+    elif n_ignore > 0:
+        capsules = []
+    reasons: list[str] = []
+    for cap in capsules:
+        if capsule_sphere_collide(cap, obstacle):
+            reasons.append(f"{cap.name}_vs_{obstacle.name}")
+    return CollisionReport(collides=len(reasons) > 0, reasons=tuple(reasons))

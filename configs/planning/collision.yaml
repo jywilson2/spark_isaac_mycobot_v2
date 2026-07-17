@@ -6,6 +6,11 @@
 # Regenerate fits: ./scripts/host/fit_mycobot_collision_spheres.sh
 
 link_radius_m: 0.025
+# Thinner capsules for mid-path / settle EE-only arm-sweep monitor (meters).
+# ``link_radius_m`` (25 mm) is fat for CI path checks and false-flags valid tip
+# approaches as MARKER_ARM_SWEEP. Keep this near mesh-fitted proximal radii.
+arm_sweep_link_radius_m: 0.012
+arm_sweep_n_ee_segments_ignored: 3
 path_samples: 24
 ignore_tip_segment_at_goal: true
 enforce_collision_in_validation: true
@@ -93,42 +98,50 @@ plan_recovery_reposition_max_attempts: 2
 # spheres only for the axial standoff→pierce segment (length ≈ contact_standoff_m).
 contact_axis_enabled: true
 # Distance outside the marker surface where tip spheres stay ON (meters).
-contact_standoff_m: 0.008
+# Set to 12 mm (lockstep with tip-omit allow; was briefly 20 mm) so the spheres-ON approach clears the visual sphere with the
+# proximal arm before the short tip-omit nudge (reduces "target hits arm side").
+contact_standoff_m: 0.012
 # Nominal tip-omit axial length (meters); typically equals contact_standoff_m.
-contact_nudge_m: 0.008
+contact_nudge_m: 0.012
 # Hard cap on tip-omit Cartesian length (meters).
-contact_nudge_max_m: 0.020
+contact_nudge_max_m: 0.014
 # Tip-omit final segment cap (meters) after a recovery via. Kept SHORT on
 # purpose: with tip/flange spheres OFF, a long axial nudge lets the EE barrel
 # sweep *through* the volumetric marker (the "moves through the red sphere"
 # bug). Larger start→pierce gaps must instead be closed by a spheres-ON
 # approach to the oriented standoff (try_oriented_tip_face_contact), then only
-# this short tip-omit nudge onto the pierce point. Do NOT raise this to "make
-# far vias pass" — that reintroduces through-sphere false greens.
-contact_via_nudge_max_m: 0.020
+# this short tip-omit nudge onto the pierce point. Do NOT raise this (or add
+# a multi-cm tip-omit fallback) to "make far vias pass" — that reintroduces
+# side/back EE hits and through-sphere false greens.
+contact_via_nudge_max_m: 0.014
 contact_lateral_tolerance_m: 0.003
 # Max tool-axis misalignment (rad) for green tip-face contact validation.
-contact_axis_tolerance_rad: 0.35  # ~20 deg
+# Keep ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD (≈15° / 0.26) — do not loosen for greens.
+contact_axis_tolerance_rad: 0.26
+# Extra radius (meters) on the *spheres-ON approach* obstacle only (visual stays
+# 12 mm). Keeps MotionGen tip outside the tip-face shell until oriented standoff
+# so mid-path side_graze is less likely before tip-omit.
+target_obstacle_inflate_m: 0.006
+
+# GUI debug: translucent mesh-fitted collision spheres
+# (`--show-collision-spheres` / ISAAC_VIZ_SHOW_COLLISION_SPHERES). Enabled by
+# default for `./scripts/host/smoke_isaac_viz.sh --gui`. Not a planning knob.
 
 # Bounded orientation cone for edge targets (spec.md Phase 2). When the exact
 # outward-normal contact pose IK-fails, try a small cone of pad-facing tool-axis
 # directions around the outward normal. Every candidate stays within
 # contact_orientation_cone_max_rad of the normal, so the honest tip-face gate
-# (axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD ≈ 35°) still holds — this is NOT a
+# (axis_out ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD ≈ 15°) still holds — this is NOT a
 # way to accept side/through contacts. Keep cone_max_rad well under the gate tol.
 contact_orientation_cone_enabled: true
-contact_orientation_cone_max_rad: 0.30   # ~17 deg (< 35° gate tol)
+contact_orientation_cone_max_rad: 0.22   # ~12.6 deg (< 15° gate tol)
 contact_orientation_cone_tilts: 2
 contact_orientation_cone_azimuths: 4
 
-# Dexterity prescreen (spec.md Phase 2, recommended step #1). Before planning,
-# a deterministic DLS-IK check tests whether the oriented pad-facing contact
-# pose (pierce point + a cone orientation, both tool-axis signs, multiple
-# seeds) is reachable within joint limits. Targets that are provably
-# orientation-infeasible are reported RESULT SKIPPED_UNREACHABLE and excluded
-# from the PLAN_OK rate gate (they are sampler optimism, not planner faults).
-# HONESTY: this is intentionally STRICT so it does not mask genuine PLAN_FAILs —
-# a target is skipped only when NO seed/orientation/sign converges.
+# Dexterity / Dexterous-Region gate (spec.md Phase 2).
+# SKIPPED_UNREACHABLE is used **only** for targets outside the Dexterous Region
+# geometric shell. In-region targets that are hard to plan use vias / recovery
+# and become PLAN_FAIL if recovery times out — they are never "unreachable".
 plan_prescreen_dexterity_enabled: true
 # Backend for the dexterous-workspace gate: auto → Pinocchio when importable
 # (host Isaac Sim Python), else NumPy DLS. Pinocchio is the preferred classical
@@ -137,15 +150,8 @@ plan_prescreen_backend: auto
 plan_prescreen_position_tol_m: 0.006
 plan_prescreen_orientation_tol_rad: 0.35
 plan_prescreen_seeds: 12
-# Skip position-reachable / orientation-infeasible targets?
-# null = auto: True when Pinocchio backend is selected, False for NumPy (honesty).
-# Explicit true/false overrides the auto policy.
-plan_prescreen_skip_orientation_infeasible: null
-# "Dexterous Region" interior margin (meters) inside the reach envelope
-# (configs/robot/workspace.yaml min_reach_m..max_reach_m). A SKIPPED_UNREACHABLE
-# target whose radial distance is still inside this interior shell is flagged by
-# the end-of-test analyzer as orientation-limited (position is comfortable) and
-# gets a via speculation. Units: meters.
+# Never skip in-region orientation-limited targets as unreachable — use vias.
+plan_prescreen_skip_orientation_infeasible: false
 # Interior margin (m) defining the Dexterous Region shell:
 # [min_reach+margin, max_reach−margin]. Targets outside are SKIPPED_UNREACHABLE
 # (geometric dexterous-workspace gate). 0.04 → ~[0.16, 0.24] m for MyCobot 280.
@@ -154,3 +160,14 @@ dexterous_region_margin_m: 0.04
 # Isaac viz / smoke: fail if PLAN_OK / (OK+FAIL) is below this (1.0 = require all).
 # Override with --min-plan-ok-rate or ISAAC_VIZ_MIN_PLAN_OK_RATE.
 min_plan_ok_rate: 1.0
+
+# Fail when SKIPPED_UNREACHABLE / candidates_considered exceeds this fraction.
+# Unreachable targets are **not** countable episodes (they do not consume a
+# visualize slot); a high skip rate means the sampler is wasting budget on
+# out-of-dexterity poses. Override: --max-skip-unreachable-frac /
+# ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC. Use >=1.0 or <0 to disable.
+max_skip_unreachable_frac: 0.25
+
+# Prefer candidates inside the Dexterous Region when filling countable
+# visualize episodes (keeps skip_unreachable low without faking PLAN_OK).
+prefer_dexterous_region_candidates: true

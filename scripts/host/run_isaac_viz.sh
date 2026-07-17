@@ -140,18 +140,44 @@ with open(path, encoding="utf-8") as f:
 n_ok = int(m.get("phase2_plan_ok", 0) or 0)
 n_fail = int(m.get("phase2_plan_fail", 0) or 0)
 total = n_ok + n_fail
-if total <= 0:
-    sys.exit(0)
-rate = float(m.get("phase2_plan_ok_rate", n_ok / total))
-min_rate = float(m.get("phase2_min_plan_ok_rate", 0.0) or 0.0)
-if min_rate > 0.0 and rate + 1e-15 < min_rate:
+n_target = int(m.get("phase2_countable_target") or m.get("n_visualized_target") or 0)
+failed = False
+# A visualize>0 run that never wrote phase2 episode counters is a false PASS
+# (Kit crash / early exit). Require at least one countable episode.
+if n_target > 0 and "phase2_countable_episodes" not in m and total <= 0:
     print(
-        f"Phase 2 PLAN_OK rate gate FAILED (post-Kit check): "
-        f"{rate:.3f} < {min_rate:.3f} ({n_ok} ok / {total} planned)",
+        "Phase 2 post-Kit check FAILED: visualize target "
+        f"{n_target} but no phase2 episode metrics were written "
+        "(early Kit exit / crash before the planning loop finished)",
         file=sys.stderr,
     )
-    sys.exit(2)
-sys.exit(0)
+    failed = True
+if total > 0:
+    rate = float(m.get("phase2_plan_ok_rate", n_ok / total))
+    min_rate = float(m.get("phase2_min_plan_ok_rate", 0.0) or 0.0)
+    if min_rate > 0.0 and rate + 1e-15 < min_rate:
+        print(
+            f"Phase 2 PLAN_OK rate gate FAILED (post-Kit check): "
+            f"{rate:.3f} < {min_rate:.3f} ({n_ok} ok / {total} planned)",
+            file=sys.stderr,
+        )
+        failed = True
+n_skip_u = int(m.get("phase2_skipped_unreachable", 0) or 0)
+n_cand = int(m.get("phase2_candidates_considered", 0) or 0)
+max_skip = float(m.get("phase2_max_skip_unreachable_frac", 1.0) or 1.0)
+if n_cand > 0 and 0.0 <= max_skip < 1.0:
+    skip_frac = float(
+        m.get("phase2_skip_unreachable_frac", n_skip_u / n_cand)
+    )
+    if skip_frac > max_skip + 1e-15:
+        print(
+            f"Phase 2 SKIPPED_UNREACHABLE gate FAILED (post-Kit check): "
+            f"{skip_frac:.3f} > {max_skip:.3f} "
+            f"({n_skip_u} unreachable / {n_cand} candidates)",
+            file=sys.stderr,
+        )
+        failed = True
+sys.exit(2 if failed else 0)
 PY
   gate_rc=$?
   set -e

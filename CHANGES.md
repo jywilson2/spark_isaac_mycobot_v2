@@ -1,5 +1,190 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Axial tip-omit lerp + long-GUI iteration (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — `plan_axial_tip_omit_lerp` (DLS-IK + joint lerp) for
+   tip-omit; MotionGen tip-omit only as fallback.
+2. **`collision.yaml`** — standoff/nudge 12 mm, inflate 6 mm, tip-omit max 14 mm,
+   `contact_axis_tolerance_rad` 0.26.
+3. Mid-path graze latch + tip-face tighten retained (spec frozen failures).
+
+## Spec: freeze mandatory contact failure conditions (2026-07-17)
+
+**Enumerated changes**
+
+1. **`spec.md`** — new § **Mandatory contact failure conditions (frozen for
+   experiments)**: through, side_graze, side/barrel + back axis, immersed,
+   no_contact reclassify, invalid settle, mid-path graze latch
+   (`CONTACT_INVALID_MIDPATH_GRAZE`), settled EE side spheres, arm sweep/body —
+   must remain `PLAN_FAIL`; warn-only mid-path graze that stays PLAN_OK is a
+   spec violation; tolerance floor (≤15° / 4 mm / 2 mm).
+
+## Mid-path side/back graze → PLAN_FAIL (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — latch mid-path `side_graze` / `wrong_side_axis` into
+   `mid_path_side_or_back`; settle forces `PLAN_FAIL(invalid_side)` via
+   `CONTACT_INVALID_MIDPATH_GRAZE` (same pattern as `arm_swept`). A later green
+   no longer keeps the episode as PLAN_OK after a visual side approach.
+2. **`tests/test_viz_plan_fail_closed.py`** — source contract for the latch.
+
+**Evidence:** `/tmp/gui_false_green.log` — SIDE_GRAZE → MARKER_CONTACT → PLAN_OK
+on most episodes (warn-only mid-path).
+
+## Tighten false-green tip-face gate (2026-07-17)
+
+**Enumerated changes**
+
+1. **`isaac_sim/target_marker.py`** — tightened tip-face constants to match
+   historical honest greens:
+   - `TARGET_MARKER_TOOL_AXIS_TOL_RAD`: 0.611 → **0.26** (≈15°)
+   - `TARGET_MARKER_TIP_FACE_RADIUS_M`: 0.010 → **0.004** (4 mm pad)
+   - `TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M`: 0.004 → **0.002** (2 mm)
+2. **`planning/marker_contact_diag.py`** — new `settle_has_side_sphere_hits`
+   (pure NumPy): tip-zone sphere ∩ marker OK; any **side** hit → reject.
+3. **`isaac_sim/run_ik_viz.py`** — after settle `classify_tip_contact`, scan YAML
+   collision spheres at `q_settled`; side hits → `CONTACT_INVALID_SETTLE` /
+   `MARKER_EE_SIDE_SPHERE` → `PLAN_FAIL(invalid_side)`.
+4. **`tests/test_target_marker.py`** — rejects prior false-green metrics
+   (axis_out≈25°, lat≈8 mm, dist≈15 mm); side/back/immerse still fail.
+5. **`tests/test_marker_contact_diag.py`** + **`tests/test_viz_plan_fail_closed.py`**
+   — settle side-sphere helper + source-contract wiring.
+6. **Docs** — `STATUS.md`, `docs/phase2_geometry.md`, `spec.md` tip-face section
+   synced to ≈15° / 4 mm / 2 mm + volumetric side reject.
+7. **`configs/planning/collision.yaml`** — `contact_orientation_cone_max_rad`
+   0.30 → **0.22** so cone candidates stay under the ≈15° gate.
+
+**Recommended for further review:** short headless+GUI smoke may now show
+honest `PLAN_FAIL(invalid_side)` if approaches still graze — do **not** widen
+tip-omit or axis tol to chase greens; prefer spheres-ON reseat / vias.
+
+## Tip-face reject tests verified (side/back/immerse) (2026-07-17)
+
+**Enumerated changes**
+
+1. **`tests/test_target_marker.py`** — explicit
+   `test_rejects_side_barrel_back_and_submerged_ee_contacts` (side/barrel,
+   flipped/back, immersed, side_graze must all return `ok is False`); tightened
+   side_graze exact reason.
+2. **`tests/test_viz_plan_fail_closed.py`** — source contract that settled
+   classify failures become `PLAN_FAIL(immersed|invalid_side)` via
+   `CONTACT_INVALID_SETTLE`.
+
+## Tip-omit cap + pad-alignment gate (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — tip-omit length allow is always ≤ `contact_nudge_max_m`
+   (removed ≤60 mm fallback after spheres-ON approach fail).
+2. **`fk_pad_aligned_for_tip_omit` / `tip_omit_length_allow_m`** — helpers;
+   tip-omit after approach fail requires pad-aligned FK; skip-near misaligned
+   pads reseat with spheres ON (or refuse).
+3. **`tests/test_tip_omit_gates.py`** — length cap + orientation refuse cases.
+4. **`collision.yaml`** — comment: do not reintroduce multi-cm tip-omit.
+
+**Recommended for further review:** GUI visual check that side/back EE hits
+are gone; if greens drop, prefer vias / Cartesian spheres-ON approach — not
+widening tip-omit.
+
+## Kill log streamers before each test cycle (.cursorrules) (2026-07-17)
+
+**Enumerated changes**
+
+1. **`.cursorrules`** — mandatory: kill leftover background `tail -F` / DEC|RESULT
+   log streamers before starting any new Isaac smoke / verification cycle.
+2. Cleared leftover streamer processes from prior GUI/headless runs.
+
+## Headless contact iteration + DEC logging (2026-07-17)
+
+**Enumerated changes**
+
+1. Restored **8 mm** standoff/nudge; **inflate=0** (known-good tip-face planning).
+2. Live **`DEC|…`** decision logging (`decision_emit` in recovery / viz).
+3. **`--early-abort-after-fails`** (kept); `ISAAC_VIZ_RECOVERY_TIMEOUT_S` override.
+4. **`arm_sweep_link_radius_m: 0.012`** — stop false `MARKER_ARM_SWEEP` from 25 mm capsules.
+5. Tip-omit fallback allow after approach fail up to **60 mm**.
+6. Headless iter2 smoke: **PASSED** `ok=8 green=8 rate=1.0`.
+
+**Recommended for further review:** whether 60 mm tip-omit fallback reintroduces
+through-sphere on some targets; prefer vias when tip_far ≫ standoff.
+
+## GUI early-abort + tip-face/sphere analysis (2026-07-17)
+
+**Enumerated changes**
+
+1. **`--early-abort-after-fails`** (default 3) — stop viz loop when `PLAN_OK=0`
+   after N `PLAN_FAIL` episodes; log `EARLY_ABORT`.
+2. **`GUI_STOP` on PLAN_FAIL hold** when Kit `is_running()` goes false (was a
+   silent `break`).
+3. **STATUS.md** — analysis: overlay sphere misalignment ≠ PLAN_FAIL cause;
+   tip-face commits `e219fa4` / `4cfaf89` are the historical inflection.
+
+## Collision-sphere GUI overlay (2026-07-17)
+
+**Enumerated changes**
+
+1. **`--show-collision-spheres`** / **`--collision-sphere-opacity`** on
+   `isaac_sim/run_ik_viz.py` — translucent USD overlay of mesh-fitted cuRobo
+   spheres (amber=proximal, cyan=tip-omit links).
+2. **`isaac_sim/collision_sphere_viz.py`** + **`planning/collision_sphere_world.py`**
+   — FK world placement from committed YAML (no Kit needed for unit tests).
+3. **`UrdfKinematicModel.link_transforms`** — per-link 4×4 for sphere placement.
+4. **GUI smoke** (`smoke_isaac_viz.sh --gui`) enables the overlay by default;
+   `ISAAC_VIZ_SHOW_COLLISION_SPHERES=0` or `--no-show-collision-spheres` disables.
+5. **Tests** — `tests/test_collision_sphere_viz.py`.
+
+**Recommended for further review:** whether Kit viewport opacity needs a
+dedicated translucent render pass on some Isaac Sim builds.
+
+## Surface-shell contact + arm-sweep + via-only-in-region (2026-07-17)
+
+**Enumerated changes**
+
+1. **`classify_tip_contact` surface shell** — reject `immersed` when tip is
+   deeper than `radius − inner_tol` (touch surface, do not collide into volume).
+2. **`MARKER_ARM_SWEEP` mid-path** + settle `arm_body_contact` — proximal arm
+   must not graze the marker before tip-face contact.
+3. **Planning clearance** — `contact_standoff_m` 8→20 mm; `target_obstacle_inflate_m: 0.008`
+   on the planning obstacle only (visual stays 12 mm).
+4. **`SKIPPED_UNREACHABLE` only outside Dexterous Region** —
+   `plan_prescreen_skip_orientation_infeasible: false`; in-region uses vias.
+5. **`spec.md`** — via vs unreachable table; cuRobo-as-planner vs oracle-IK
+   seeding guidance (do not replace MotionGen with oracle IK alone).
+
+**Recommended for further review:** whether 20 mm standoff + 8 mm inflate is
+enough to eliminate visible arm-side clips under GUI servo lag.
+
+## Skip-unreachable gate + EE-only settle + countable episodes (2026-07-17)
+
+**Enumerated changes**
+
+1. **`max_skip_unreachable_frac`** (YAML/CLI/env) — fail smoke when unreachable
+   skips exceed 25% of candidates considered.
+2. **`--visualize N` = N countable episodes** — skips (`SKIPPED_UNREACHABLE` /
+   overlapping) do not consume episode slots; prefer Dexterous Region candidates.
+3. **`proximal_arm_contacts_target`** — settle-time `PLAN_FAIL(arm_body_contact)`
+   if proximal arm capsules intersect the marker (EE tip-face exclusive).
+4. **`spec.md`** — new § EE-only surface contact; episode/skip-gate contracts;
+   secondary docs-push requirement.
+5. **`scripts/git_secondary_docs_push.sh`** — docs-only second push without
+   re-editing STATUS/CHANGES/last_prompt in the same turn.
+6. **Tests** — `tests/test_skip_unreachable_gate.py`; smoke/post-Kit checks.
+
+**Recommended for further review:** whether `0.25` is the right skip-frac cap
+once Dexterous-Region-first sampling is verified on a full GUI 48-episode run.
+
+## STATUS.md host-writable + SKIPPED_UNREACHABLE append reliability (2026-07-17)
+
+1. **`STATUS.md` permissions** — group-writable for the host Isaac user so
+   end-of-test analysis can append (was root:root 0644; Kit runs as `jywilson`).
+2. **`skipped_analysis.analyze_and_report`** — log a warning on `OSError` instead
+   of silently dropping the STATUS append.
+3. **Backfilled** the full-48 GUI analysis block (`ok=19 fail=0 skip_unreachable=22`)
+   that Kit could not write earlier.
+
 ## Headless planning parity + Pinocchio dexterous-workspace gate (2026-07-17)
 
 **Enumerated changes**

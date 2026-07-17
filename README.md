@@ -307,7 +307,7 @@ Equivalent one-liner:
 **Single host run:** evaluates DLS IK metrics on `--num-poses` samples, writes the Phase 1 report/JSON, imports MyCobot to USD, and animates `--visualize` trials. Each IK goal is a **12 mm sphere**: **red** pending, **green** on EE tip contact, **yellow** on plan failure. Workspace sampling uses **240** stratified cells (12×4×5).  
 **Typical use:** see classical IK on the real robot mesh while producing the same metrics report as the NumPy baseline. Must run on the **host** (or with Kit mounted + `SPARK_ALLOW_CONTAINER_ISAAC=1`).
 
-`--visualize N` means animate N trials **inside Kit**; it does **not** open a window by itself. Without `--headless`, Kit starts with a GUI (needs `DISPLAY`). Prefer `./scripts/host/smoke_isaac_viz.sh` for the short TDD path (headless by default).
+`--visualize N` means fill **N countable episodes** (`PLAN_OK`/`PLAN_FAIL`) inside Kit; `SKIPPED_UNREACHABLE` / overlapping skips do not consume a slot. It does **not** open a window by itself. Without `--headless`, Kit starts with a GUI (needs `DISPLAY`). Prefer `./scripts/host/smoke_isaac_viz.sh` for the short TDD path (headless by default).
 
 **Manual GUI for several minutes** (host desktop; window stays open until you close it — no `--auto-exit`):
 
@@ -339,12 +339,14 @@ Host Isaac Sim URDF→USD conversion only (no metrics animation). Writes prepare
 
 # Visible Isaac Sim window (host graphical session with DISPLAY):
 ./scripts/host/smoke_isaac_viz.sh --gui
+# GUI smoke enables translucent collision spheres by default (amber=arm,
+# cyan=tip-omit). Disable: ISAAC_VIZ_SHOW_COLLISION_SPHERES=0
 
 # From Cursor/container (nsenter → host Kit; headless unless you add --gui on host):
 ./scripts/host/spark_host_exec.sh ./scripts/host/smoke_isaac_viz.sh
 ```
 
-Short Phase 1 metrics + Phase 2 planning smoke for TDD / CI-like verification. Default is **headless** Kit (CI / remote PR gate). Env knobs: `ISAAC_VIZ_SMOKE_N_POSES`, `ISAAC_VIZ_SMOKE_VISUALIZE`, `ISAAC_VIZ_SMOKE_HOLD_S`, `ISAAC_VIZ_SMOKE_RESET_TO_HOME`, `ISAAC_VIZ_MIN_PLAN_OK_RATE` (fail if PLAN_OK rate is below threshold; YAML default `0.25`).
+Short Phase 1 metrics + Phase 2 planning smoke for TDD / CI-like verification. Default is **headless** Kit (CI / remote PR gate). Env knobs: `ISAAC_VIZ_SMOKE_N_POSES`, `ISAAC_VIZ_SMOKE_VISUALIZE` (countable episodes — skips do not consume slots), `ISAAC_VIZ_SMOKE_HOLD_S`, `ISAAC_VIZ_SMOKE_RESET_TO_HOME`, `ISAAC_VIZ_MIN_PLAN_OK_RATE` (YAML default `1.0`), `ISAAC_VIZ_MAX_SKIP_UNREACHABLE_FRAC` (YAML default `0.25`), `ISAAC_VIZ_SHOW_COLLISION_SPHERES` (GUI default `1`).
 
 The IK target sphere relocates only after planning finishes (red on `PLAN_OK`, yellow after recovery fail) — not at the start of each trial.
 

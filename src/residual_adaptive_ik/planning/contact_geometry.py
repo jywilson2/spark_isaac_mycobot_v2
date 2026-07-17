@@ -156,7 +156,7 @@ def contact_orientation_cone(
     Every returned orientation keeps tool +Z within ``cone_max_rad`` of the exact
     outward normal, so the achieved contact still satisfies the signed tip-face
     gate (``classify_tip_contact`` requires ``axis_out ≤``
-    ``TARGET_MARKER_TOOL_AXIS_TOL_RAD`` ≈ 35°). Keep ``cone_max_rad`` ≤ ~0.5 rad
+    ``TARGET_MARKER_TOOL_AXIS_TOL_RAD`` ≈ 15°). Keep ``cone_max_rad`` ≤ ~0.5 rad
     so a small servo/solve error cannot push a cone edge past the gate. This is
     **not** a way to accept side/through contacts — the lateral / penetration
     checks still apply.

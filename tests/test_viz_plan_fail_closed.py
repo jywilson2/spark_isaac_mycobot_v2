@@ -209,6 +209,37 @@ def test_marker_no_contact_reclassified_as_failure():
     assert "n_plan_fail += 1" in src
 
 
+def test_viz_settle_side_back_immerse_become_plan_fail():
+    """Settled side/back/immersed contacts must not stay PLAN_OK / green.
+
+    Source contract: after a green flash, ``classify_tip_contact`` on the
+    settled pose must reclassify immersed → ``PLAN_FAIL(immersed)`` and
+    side_graze / through / wrong_side_axis → ``PLAN_FAIL(invalid_side)``.
+    Side collision-sphere hits at settle also → ``PLAN_FAIL(invalid_side)``
+    via ``MARKER_EE_SIDE_SPHERE``. Without this wiring, unit classify rejects
+    would not fail the smoke rate.
+    """
+    src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
+    assert "CONTACT_INVALID_SETTLE" in src
+    assert "classify_tip_contact" in src
+    assert 'fail_reason_tag = (\n                            "immersed" if freason == "immersed" else "invalid_side"\n                        )' in src or (
+        '"immersed" if freason == "immersed" else "invalid_side"' in src
+    )
+    assert "PLAN_FAIL({fail_reason_tag})" in src or 'PLAN_FAIL({fail_reason_tag})' in src
+    assert '"invalid_side"' in src and '"immersed"' in src
+    assert "settle_has_side_sphere_hits" in src
+    assert "MARKER_EE_SIDE_SPHERE" in src
+    # Mid-path diagnostic labels for the same failure modes.
+    assert "MARKER_SIDE_GRAZE" in src
+    assert "MARKER_WRONG_SIDE" in src
+    assert "MARKER_THROUGH" in src or "through" in src
+    # Immersion must be an explicit mid-path or settle failure path.
+    assert "immersed" in src
+    # Mid-path side/back graze latches settle PLAN_FAIL (not warn-only).
+    assert "CONTACT_INVALID_MIDPATH_GRAZE" in src
+    assert "mid_path_side_or_back" in src
+
+
 def test_viz_defers_marker_until_plan_outcome():
     """Target sphere must not relocate before planning finishes.
 

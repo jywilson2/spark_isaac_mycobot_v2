@@ -139,6 +139,41 @@ def classify_sphere_vs_marker(
     )
 
 
+def settle_has_side_sphere_hits(
+    robot_spheres_xyzr: np.ndarray,
+    tip_m: np.ndarray,
+    marker_center_m: np.ndarray,
+    *,
+    marker_radius_m: float = DEFAULT_MARKER_RADIUS_M,
+    tip_zone_m: float = 0.028,
+    lateral_side_m: float = 0.010,
+    approach_m: np.ndarray | None = None,
+) -> tuple[bool, WaypointContactReport]:
+    """Return whether a settle pose has non-tip spheres intersecting the marker.
+
+    Why this exists
+    ---------------
+    Point-tip ``classify_tip_contact`` can still flash green while flange /
+    barrel collision spheres clip the marker (tip-omit turns those spheres off
+    for MotionGen, but the volumetric EE body is still wrong). Tip-zone hits
+    alone are expected at contact; any **side** hit must fail the settle gate
+    (``PLAN_FAIL(invalid_side)`` / ``MARKER_EE_SIDE_SPHERE``).
+
+    Pure NumPy — no Kit. Units: meters.
+    """
+    report = analyze_waypoint_spheres(
+        robot_spheres_xyzr,
+        tip_m,
+        marker_center_m,
+        marker_radius_m=marker_radius_m,
+        waypoint_index=0,
+        tip_zone_m=tip_zone_m,
+        lateral_side_m=lateral_side_m,
+        approach_m=approach_m,
+    )
+    return report.has_side_contact, report
+
+
 def analyze_waypoint_spheres(
     robot_spheres_xyzr: np.ndarray,
     tip_m: np.ndarray,
