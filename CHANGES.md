@@ -1,5 +1,17 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Docs-only: progress assessment turn (2026-07-17)
+
+**Enumerated changes**
+
+1. **`docs/last_prompt.md`** — logged the assessment prompt (mandatory per-turn
+   entry); no code changes.
+2. **Verification (cloud container, no Isaac/GPU):** `pytest tests -q` with
+   `SPARK_RUN_ISAAC_GUI_SMOKE=0` → **177 passed, 10 skipped**. Isaac headless /
+   GUI smokes not runnable in this environment (no Kit); assessment of GUI-gate
+   progress is documented in the prompt reply, sourced from `STATUS.md` iter
+   tables.
+
 ## Iter19: Refuse tip-omit when reseat pad stays misaligned (2026-07-17)
 
 **Enumerated changes**
