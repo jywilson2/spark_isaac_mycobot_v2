@@ -166,12 +166,14 @@ def plan_axial_tip_omit_lerp(
         position_m=np.asarray(pierce_position_m, dtype=float).reshape(3),
         quaternion_wxyz=np.asarray(quaternion_wxyz, dtype=float).reshape(4),
     )
-    # Tight tip-omit IK: settle must land in the surface shell (outer_tol≈2 mm).
+    # Tip-omit IK: position must land in the surface shell; orientation may
+    # already be at the tip-face / cone edge after spheres-ON approach
+    # (iter22 Ep4: ori_tol=0.02 caused endless axial_ik fail → curobo fail).
     ik = DampedLeastSquaresIK(
-        max_iterations=120,
-        damping=1e-3,
-        position_tol_m=5e-4,
-        orientation_tol_rad=0.02,
+        max_iterations=160,
+        damping=2e-3,
+        position_tol_m=1.5e-3,
+        orientation_tol_rad=0.12,
         enforce_joint_limits=True,
         model=model,
     )
@@ -190,7 +192,7 @@ def plan_axial_tip_omit_lerp(
         forward_kinematics(q1, model=model).position_m, dtype=float
     ).reshape(3)
     tip_err = float(np.linalg.norm(tip1 - pose_tgt.position_m))
-    if tip_err > 0.0025:
+    if tip_err > 0.004:
         return PlannedTrajectory(
             waypoints_rad=np.zeros((0, 6)),
             dt_s=float(dt_s),
@@ -1633,6 +1635,11 @@ def try_oriented_tip_face_contact(
     )
     last_dt = float(leg_nudge.dt_s)
     if not leg_nudge.ok:
+        _decision(
+            decision_emit,
+            log,
+            f"tip_omit_plan_failed msg={leg_nudge.message}",
+        )
         return None
     # Tip-omit segment must not side-graze mid-lerp (iter14 Ep8 lat=6 mm).
     # Skip for unit FakePlanners (FK tip does not track planned pierce).

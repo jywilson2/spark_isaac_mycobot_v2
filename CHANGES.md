@@ -1,5 +1,12 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter23: Relax axial tip-omit IK orientation (2026-07-17)
+
+**Enumerated changes**
+
+1. **`plan_axial_tip_omit_lerp`** — orientation_tol 0.02→0.12 rad, position
+   0.5→1.5 mm (iter22 Ep4 approach_ok / axial_ik fail loop).
+
 ## Iter22: Tip-omit reseat near-tol + soften near-field corridor (2026-07-17)
 
 **Enumerated changes**
