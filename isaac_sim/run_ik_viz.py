@@ -1853,10 +1853,57 @@ def run_viz(args: argparse.Namespace) -> int:
                                 q_green, dtype=float
                             ).reshape(6).copy()
                         else:
-                            _viz_log(
-                                "  CONTACT_HOLD: axial IK did not converge "
-                                f"({getattr(res, 'reason', 'unknown')})"
-                            )
+                            # Freeze current pose when tip is already near the
+                            # shell (iter26 Ep6: tip_to_center=11.9 mm, IK fail,
+                            # no green latch → tip drifted to no_contact).
+                            try:
+                                q_freeze = np.asarray(
+                                    _get_joint_positions(articulation),
+                                    dtype=float,
+                                ).reshape(6).copy()
+                                tip_fr = np.asarray(
+                                    forward_kinematics(q_freeze).position_m,
+                                    dtype=float,
+                                ).reshape(3)
+                                d_fr = float(
+                                    np.linalg.norm(tip_fr - target_xyz)
+                                )
+                                shell_max = (
+                                    float(TARGET_MARKER_CONTACT_DISTANCE_M)
+                                    + float(
+                                        TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M
+                                    )
+                                )
+                                if d_fr <= shell_max + 1e-3:
+                                    approach_from_m = (
+                                        tip_fr
+                                        + (tip_fr - target_xyz)
+                                        / max(
+                                            1e-9,
+                                            float(
+                                                np.linalg.norm(
+                                                    tip_fr - target_xyz
+                                                )
+                                            ),
+                                        )
+                                        * 0.02
+                                    )
+                                    _viz_log(
+                                        "  CONTACT_HOLD: IK fail — freezing "
+                                        f"in-shell tip ({d_fr * 1e3:.1f}mm)"
+                                    )
+                                else:
+                                    q_freeze = None
+                                    _viz_log(
+                                        "  CONTACT_HOLD: axial IK did not "
+                                        f"converge ({getattr(res, 'reason', 'unknown')})"
+                                    )
+                            except Exception:
+                                q_freeze = None
+                                _viz_log(
+                                    "  CONTACT_HOLD: axial IK did not converge "
+                                    f"({getattr(res, 'reason', 'unknown')})"
+                                )
                 except Exception as exc:  # noqa: BLE001
                     _viz_log(f"  CONTACT_HOLD: axial IK skipped ({exc})")
                 t_nudge = time.monotonic() + max(0.15, float(hold_s))

@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter27: Freeze in-shell tip when CONTACT_HOLD IK fails without green (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — if CONTACT_HOLD IK fails and no ``q_at_contact``,
+   freeze current joints when tip is still in the surface shell (iter26 Ep6
+   drifted to no_contact after IK fail with tip_to_center=11.9 mm).
+
 ## Iter26: Reject DLS approach ends with flipped pad (2026-07-17)
 
 **Enumerated changes**

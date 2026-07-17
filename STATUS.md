@@ -135,7 +135,9 @@ path clean**: `ok=11 fail=0 rate=1.000` but `skip_unreachable=24/40`
 contact streak remains iter25 **11/12** with skip_frac=0.
 
 | 26 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 no_contact | investigate Ep6 |
-| 27 | pending | — | toward GUI viz=48 |
+**Iter27 change:** freeze in-shell tip on CONTACT_HOLD IK fail without green.
+
+| 27 | headless (pending) | — | then long GUI viz=48 |
 
 
 ## Spec freeze — contact failures (2026-07-17)
