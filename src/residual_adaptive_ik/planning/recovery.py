@@ -1274,6 +1274,36 @@ def try_oriented_tip_face_contact(
                                     message=f"plan_failed:dls_tip_face_{tf_reason}",
                                 )
                     if leg_ap.ok:
+                        # Reject DLS ends that are not pad-facing (iter25 Ep12:
+                        # approach_ok_dls then axis_err=1.76 → tip-omit refuse).
+                        q_end = np.asarray(
+                            leg_ap.waypoints_rad[-1], dtype=float
+                        ).reshape(6)
+                        pad_end, pad_err, pad_tol = fk_pad_aligned_for_tip_omit(
+                            q_end,
+                            approach.normal_outward,
+                            model=mdl,
+                            cfg=cfg,
+                        )
+                        if (not pad_end) and pad_err > max(0.50, 2.0 * pad_tol):
+                            log.append(
+                                f"contact_approach_dls_q{qi}:pad_end_misaligned|"
+                                f"axis_err={pad_err:.3f}>tol={pad_tol:.3f}"
+                            )
+                            _decision(
+                                decision_emit,
+                                log,
+                                f"approach_dls_reject_pad_end q{qi} "
+                                f"axis_err_rad={pad_err:.3f}",
+                            )
+                            leg_ap = PlannedTrajectory(
+                                waypoints_rad=np.zeros((0, 6)),
+                                dt_s=last_dt,
+                                success=False,
+                                backend="dls_approach",
+                                message="plan_failed:dls_pad_end_misaligned",
+                            )
+                    if leg_ap.ok:
                         quat = np.asarray(quat_try, dtype=float).reshape(4)
                         chosen_quat = quat.copy()
                         _decision(

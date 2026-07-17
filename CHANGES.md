@@ -1,5 +1,12 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter26: Reject DLS approach ends with flipped pad (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — after DLS standoff approach, reject if FK pad axis_err
+   > max(0.5, 2×tol) (iter25 Ep12: approach_ok_dls with axis_err=1.76).
+
 ## Iter25: Filter viz candidates to Dexterous Region only (2026-07-17)
 
 **Enumerated changes**

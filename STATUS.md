@@ -127,6 +127,9 @@ path clean**: `ok=11 fail=0 rate=1.000` but `skip_unreachable=24/40`
 |------|-------|---------|------|
 | 24 | headless viz=16 abort=1 | **FAIL** skip 0.60 (contact 11/11 ok) | filter dex region |
 | 25 | headless viz=16 n_poses=80 | **FAIL** 11/12 Ep12 timeout | recover Ep12 |
+**Iter26 change:** reject DLS approach end poses with flipped pad
+(axis_err ≫ tip-face tol).
+
 | 26 | headless (pending) | — | then long GUI viz=48 |
 
 
