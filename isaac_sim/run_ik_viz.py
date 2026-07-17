@@ -1481,23 +1481,30 @@ def run_viz(args: argparse.Namespace) -> int:
             # Axial pierce refine when tip is outside the surface shell — even if
             # a mid-path green already latched ``contacted``. Iter6: green at
             # 13.6 mm then settle 14.0 mm (just past outer_tol) with nan axes.
-            def _tip_outside_surface_shell() -> bool:
+            # Also refine when tip is in-shell but pad axis is past the tip-face
+            # tol (iter7: dist OK after refine but axis_out≈37° with quat_now).
+            def _needs_contact_hold_refine() -> bool:
                 try:
-                    tip_chk = np.asarray(
-                        forward_kinematics(
-                            _get_joint_positions(articulation)
-                        ).position_m,
-                        dtype=float,
-                    ).reshape(3)
-                    d_chk = float(np.linalg.norm(tip_chk - target_xyz))
-                    return d_chk > (
-                        float(TARGET_MARKER_CONTACT_DISTANCE_M)
-                        + float(TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M)
+                    q_chk = _get_joint_positions(articulation)
+                    p_chk = forward_kinematics(q_chk)
+                    tip_chk = np.asarray(p_chk.position_m, dtype=float).reshape(3)
+                    fok, freason, _fm = classify_tip_contact(
+                        tip_chk,
+                        target_xyz,
+                        approach_from_m=approach_from_m,
+                        ee_quaternion_wxyz=p_chk.quaternion_wxyz,
+                    )
+                    if fok:
+                        return False
+                    return freason in (
+                        "no_contact",
+                        "wrong_side_axis",
+                        "side_graze",
                     )
                 except Exception:
                     return not contacted
 
-            if (not contacted) or _tip_outside_surface_shell():
+            if (not contacted) or _needs_contact_hold_refine():
                 # Short axial refine toward the pierce point (surface), not the
                 # marker center. Keeps tip-face contact without reintroducing
                 # side/flange immersion from a center-drive to trial.q_sol.
@@ -1521,16 +1528,34 @@ def run_viz(args: argparse.Namespace) -> int:
                     from residual_adaptive_ik.kinematics.numerical_ik import (
                         DampedLeastSquaresIK,
                     )
+                    from residual_adaptive_ik.planning.contact_geometry import (
+                        build_sphere_contact_approach,
+                    )
 
+                    # Pad-facing quat at pierce (not current wrist). Keeping
+                    # quat_now after a sequential handoff left settle at
+                    # axis_out≈37° (iter7) even when tip was on the shell.
+                    ca_hold = build_sphere_contact_approach(
+                        tip_now,
+                        target_xyz,
+                        float(TARGET_MARKER_RADIUS_M),
+                        standoff_m=0.008,
+                        nudge_m=0.008,
+                        current_quaternion_wxyz=forward_kinematics(
+                            q_now
+                        ).quaternion_wxyz,
+                    )
+                    quat_goal = np.asarray(
+                        ca_hold.quaternion_wxyz, dtype=float
+                    ).reshape(4)
                     ik = DampedLeastSquaresIK(
-                        max_iterations=80,
+                        max_iterations=120,
                         damping=1e-3,
                         position_tol_m=5e-4,
-                        orientation_tol_rad=0.05,
+                        orientation_tol_rad=0.04,
                     )
-                    quat_now = forward_kinematics(q_now).quaternion_wxyz
                     res = ik.solve(
-                        Pose(position_m=pierce, quaternion_wxyz=quat_now),
+                        Pose(position_m=pierce, quaternion_wxyz=quat_goal),
                         seed_q=q_now,
                     )
                     if bool(getattr(res, "success", False)):
@@ -1542,6 +1567,11 @@ def run_viz(args: argparse.Namespace) -> int:
                             on_step=_on_step,
                         )
                         q_freeze = np.asarray(res.q, dtype=float).reshape(6).copy()
+                        # Re-anchor approach ray on the oriented standoff for
+                        # settle classify (tip-face gate).
+                        approach_from_m = np.asarray(
+                            ca_hold.standoff_position_m, dtype=float
+                        ).reshape(3).copy()
                     else:
                         _viz_log(
                             "  CONTACT_HOLD: axial IK did not converge "

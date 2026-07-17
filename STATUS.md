@@ -39,18 +39,19 @@ joint commands).
 green 13.6 mm → settle 14.0 mm (just past outer_tol); freeze reduced drift
 but mid-path green still skipped CONTACT_HOLD.
 
-**Iter7 change:** run axial pierce refine whenever tip is outside the surface
-shell after the hold (not only when ``contacted`` is false).
+**Iter7 smoke:** headless viz=16 abort=1 → **FAIL** `ok=1 fail=1` — Ep2
+CONTACT_HOLD ran (14.0→pierce) but used current wrist quat → settle
+`wrong_side_axis` axis_out=37°.
+
+**Iter8 change:** CONTACT_HOLD DLS uses **pad-facing** pierce orientation from
+``build_sphere_contact_approach``; refine also when tip-face classify fails
+for wrong_side / side_graze (not only no_contact).
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 1 | headless viz=16 abort=1 | **FAIL** 0/1 (inflate too tight) | revert inflate |
-| 2 | headless viz=16 (abort only if ok=0) | **FAIL** 14/16 — Ep2 settle `no_contact` dist=14.3mm; Ep7 `axis_out=15°` | tighter axial IK + abort-on-any-fail |
-| 3 | headless viz=16 abort=1 | **FAIL** 13/16 — settle `no_contact` + mid-path latch | hard FK tip-omit gate |
-| 4 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 approach IK wall ~60 mm | DLS standoff approach fallback |
-| 5 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 settle drift 13.4→18.7 mm | freeze joints on hold |
-| 6 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 settle 14.0 mm past outer | refine even if contacted |
-| 7 | headless (pending) | — | then long GUI viz=48 |
+| 1–6 | (see above) | approach / drift / outer_tol | — |
+| 7 | headless viz=16 abort=1 | **FAIL** 1/2 — settle axis_out=37° | pad-facing CONTACT_HOLD |
+| 8 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -937,6 +938,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:42 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:44 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

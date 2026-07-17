@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter8: Pad-facing CONTACT_HOLD orientation (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — CONTACT_HOLD DLS solves pierce with
+   ``build_sphere_contact_approach`` quaternion (pad toward marker), not the
+   current wrist quat; refine triggers on wrong_side/side_graze as well as
+   no_contact.
+
 ## Iter7: CONTACT_HOLD refine when tip outside shell after green (2026-07-17)
 
 **Enumerated changes**
