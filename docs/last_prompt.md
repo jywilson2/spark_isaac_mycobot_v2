@@ -1,10 +1,14 @@
 # The last prompt executed in the Cursor Agent window:
 
-## BEGIN: 2026-07-17 22:28 +0000
-What is the highest number for the work performed today?
+## BEGIN: 2026-07-17 22:31 +0000
+Limit your analysis to the entries in change.md that are prefixed with "iter:"
 ## END
 
 # Old prompts:
+
+## BEGIN: 2026-07-17 22:28 +0000
+What is the highest number for the work performed today?
+## END
 
 ## BEGIN: 2026-07-17 22:25 +0000
 Based on the content of CHANGES.md what is the largest number of episodes completed successfully, so far?
