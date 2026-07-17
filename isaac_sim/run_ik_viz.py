@@ -1135,7 +1135,7 @@ def run_viz(args: argparse.Namespace) -> int:
                 )
 
             def _on_step(q_rad: np.ndarray, *, _tgt=target_xyz) -> None:
-                nonlocal contacted
+                nonlocal contacted, approach_from_m
                 _update_collision_spheres(q_rad)
                 if contacted:
                     # #region agent log
@@ -1238,6 +1238,22 @@ def run_viz(args: argparse.Namespace) -> int:
                         ).reshape(6).copy()
                     except Exception:
                         contact_diag["q_at_contact"] = None
+                    # Re-anchor approach ray on the contact tip so settle classify
+                    # does not inherit a far via tip as approach_from (iter23 Ep8:
+                    # green lat=0.4 mm → settle side_graze lat=5.4 mm).
+                    try:
+                        tip_g = np.asarray(ee, dtype=float).reshape(3)
+                        out_g = tip_g - np.asarray(_tgt, dtype=float).reshape(3)
+                        n_g = float(np.linalg.norm(out_g))
+                        if n_g > 1e-9:
+                            approach_from_m = (
+                                tip_g + (out_g / n_g) * 0.02
+                            ).astype(float)
+                            contact_diag["approach_from_at_contact"] = (
+                                approach_from_m.copy()
+                            )
+                    except Exception:
+                        pass
                     # Freeze remaining trajectory — continuing after green let
                     # tip drift to 72 mm (iter19 Ep7) while settle tried restore.
                     contact_diag["stop_motion"] = True
@@ -1856,10 +1872,13 @@ def run_viz(args: argparse.Namespace) -> int:
                 try:
                     p_fin = forward_kinematics(q_settled)
                     tip_fin = np.asarray(p_fin.position_m, dtype=float).reshape(3)
+                    ap_fin = contact_diag.get("approach_from_at_contact")
+                    if ap_fin is None:
+                        ap_fin = approach_from_m
                     fok, freason, fm = classify_tip_contact(
                         tip_fin,
                         target_xyz,
-                        approach_from_m=approach_from_m,
+                        approach_from_m=np.asarray(ap_fin, dtype=float).reshape(3),
                         ee_quaternion_wxyz=p_fin.quaternion_wxyz,
                     )
                     if not fok:

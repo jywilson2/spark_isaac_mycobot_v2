@@ -1,5 +1,12 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter24: Latch approach_from on tip-face green for settle (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — on MARKER_CONTACT, set ``approach_from_at_contact`` to
+   tip+20 mm outward; settle classify uses that ray (iter23 Ep8 lat 0.4→5.4 mm).
+
 ## Iter23: Relax axial tip-omit IK orientation (2026-07-17)
 
 **Enumerated changes**

@@ -111,14 +111,19 @@ then tip-face gates blocked vias.
 recovery_timeout: approach_ok then axial tip-omit IK fail (ori_tol=0.02)
 looping with curobo tip-omit fail.
 
-**Iter23 change:** relax axial tip-omit IK (ori 0.12 rad, pos 1.5 mm);
-log ``tip_omit_plan_failed``.
+**Iter23 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — Ep8
+green lat=0.4 mm then settle ``side_graze`` lat=5.4 mm (stale ``approach_from``
+from far via tip). Axial tip-omit relax helped (got past Ep4).
+
+**Iter24 change:** latch ``approach_from_at_contact`` on green (tip + 20 mm
+outward) for settle classify.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
 | 21 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 timeout pad≈tol | reseat near-tol |
 | 22 | headless viz=16 abort=1 | **FAIL** 3/4 — Ep4 axial IK 0.02 | relax axial IK |
-| 23 | headless (pending) | — | then long GUI viz=48 |
+| 23 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 stale approach_from | latch on green |
+| 24 | headless (pending) | — | then long GUI viz=48 |
 
 
 ## Spec freeze — contact failures (2026-07-17)
@@ -1102,6 +1107,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 15:19 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 15:32 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 
