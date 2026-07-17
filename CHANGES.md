@@ -1,5 +1,17 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter6: Freeze joints during contact settle hold (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — during post-motion / CONTACT_HOLD settle windows,
+   re-command a frozen ``q`` every sim step. Stopping commands after
+   ``contacted`` latched let PD/physics drift the tip out to ~standoff
+   (false settle `no_contact` after a real green tip-face sample).
+
+**Review:** Confirm long GUI does not show frozen-arm “stuck” visuals when
+hold_s is large; freeze is only for the short settle window.
+
 ## Iter5: DLS standoff approach after MotionGen fail (2026-07-17)
 
 **Enumerated changes**

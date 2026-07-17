@@ -30,8 +30,13 @@ sequential handoff: tip ~60 mm out, MotionGen approach `IK_FAIL` /
 `FINETUNE_TRAJOPT_FAIL`, tip-omit refused (far), vias did not close gap.
 Early-abort worked.
 
-**Iter5 change:** `plan_dls_standoff_approach_lerp` after MotionGen approach
-fail (CuRoboMotionPlanner only); cone_max 0.22→0.26 (= tip-face tol).
+**Iter5 smoke:** headless viz=16 abort=1 → **FAIL** `ok=1 fail=1` — Ep2
+MotionGen approach_ok (cone) + green mid-path, then settle `no_contact`
+dist=18.7 mm (tip drifted out during hold after `contacted` stopped
+joint commands).
+
+**Iter6 change:** freeze joint targets through settle / CONTACT_HOLD windows
+so tip does not drift back to standoff after a green flash.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
@@ -39,7 +44,8 @@ fail (CuRoboMotionPlanner only); cone_max 0.22→0.26 (= tip-face tol).
 | 2 | headless viz=16 (abort only if ok=0) | **FAIL** 14/16 — Ep2 settle `no_contact` dist=14.3mm; Ep7 `axis_out=15°` | tighter axial IK + abort-on-any-fail |
 | 3 | headless viz=16 abort=1 | **FAIL** 13/16 — settle `no_contact` + mid-path latch | hard FK tip-omit gate |
 | 4 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 approach IK wall ~60 mm | DLS standoff approach fallback |
-| 5 | headless (pending) | — | then long GUI viz=48 |
+| 5 | headless viz=16 abort=1 | **FAIL** 1/2 — Ep2 settle drift 13.4→18.7 mm | freeze joints on hold |
+| 6 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -914,6 +920,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:39 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:41 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

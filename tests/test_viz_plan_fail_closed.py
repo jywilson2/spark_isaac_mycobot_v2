@@ -239,6 +239,9 @@ def test_viz_settle_side_back_immerse_become_plan_fail():
     # Fail-fast after settle reclassify as well as gated planning fails.
     assert "EARLY_ABORT" in src
     assert "early_abort_after_fails" in src
+    # Settle hold must keep commanding joints (no post-contact drift).
+    assert "q_freeze" in src
+    assert "_set_joint_positions(articulation, q_freeze)" in src
 
 
 def test_viz_defers_marker_until_plan_outcome():

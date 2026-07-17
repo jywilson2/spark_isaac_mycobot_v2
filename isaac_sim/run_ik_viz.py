@@ -1450,15 +1450,40 @@ def run_viz(args: argparse.Namespace) -> int:
                 # Nudge one servo step so contact/hold still samples FK.
                 try:
                     q_hold = _get_joint_positions(articulation)
+                    _set_joint_positions(articulation, q_hold)
                     _on_step(q_hold)
                 except Exception:
                     pass
+            # Freeze joints through the settle hold. Previously we stopped
+            # commanding once ``contacted`` latched, and Isaac PD / physics
+            # drifted the tip back out to ~standoff (Ep2 iter5: green at
+            # 13.4 mm → settle no_contact at 18.7 mm).
+            q_freeze = None
+            try:
+                q_freeze = np.asarray(
+                    _get_joint_positions(articulation), dtype=float
+                ).reshape(6).copy()
+            except Exception:
+                q_freeze = None
             t_end = time.monotonic() + max(0.05, float(hold_s))
             while time.monotonic() < t_end and simulation_app.is_running():
-                if not contacted:
-                    try:
+                try:
+                    if q_freeze is not None:
+                        _set_joint_positions(articulation, q_freeze)
+                        _on_step(q_freeze)
+                    else:
                         q_hold = _get_joint_positions(articulation)
                         _on_step(q_hold)
+                except Exception:
+                    pass
+                if contacted and q_freeze is not None:
+                    # Keep the first contact pose if we latched mid-hold.
+                    pass
+                elif contacted and q_freeze is None:
+                    try:
+                        q_freeze = np.asarray(
+                            _get_joint_positions(articulation), dtype=float
+                        ).reshape(6).copy()
                     except Exception:
                         pass
                 simulation_app.update()
@@ -1501,6 +1526,7 @@ def run_viz(args: argparse.Namespace) -> int:
                             max_speed_rad_s=max_speed,
                             on_step=_on_step,
                         )
+                        q_freeze = np.asarray(res.q, dtype=float).reshape(6).copy()
                     else:
                         _viz_log(
                             "  CONTACT_HOLD: axial IK did not converge "
@@ -1510,11 +1536,14 @@ def run_viz(args: argparse.Namespace) -> int:
                     _viz_log(f"  CONTACT_HOLD: axial IK skipped ({exc})")
                 t_nudge = time.monotonic() + max(0.15, float(hold_s))
                 while time.monotonic() < t_nudge and simulation_app.is_running():
-                    if not contacted:
-                        try:
+                    try:
+                        if q_freeze is not None:
+                            _set_joint_positions(articulation, q_freeze)
+                            _on_step(q_freeze)
+                        else:
                             _on_step(_get_joint_positions(articulation))
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
                     simulation_app.update()
             # Authoritative final-pose contact check. The marker may have
             # flashed green on a transient sample during motion; the **settled**
