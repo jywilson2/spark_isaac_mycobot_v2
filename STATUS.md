@@ -13,13 +13,16 @@ immersed, EE side spheres, arm body — must stay `PLAN_FAIL`.
 
 **Iter1 change (pre-smoke):** tip-omit segment prefers **DLS-IK + joint lerp**
 (`plan_axial_tip_omit_lerp`) instead of free cuRobo tip-omit MotionGen (curved
-paths caused mid-path `SIDE_GRAZE` then false greens). Config: standoff/nudge
-**12 mm**, inflate approach obstacle **6 mm**, tip-omit cap **14 mm**,
-`contact_axis_tolerance_rad` **0.26**.
+paths caused mid-path `SIDE_GRAZE` then false greens).
+
+**Iter1 smoke:** headless viz=16 early-abort=1 → **FAIL** `ok=0 fail=1` —
+approach `IK_FAIL` wall from inflate=6 mm / standoff=12 mm. Reverted inflate→0,
+standoff/nudge→8 mm; **kept** axial tip-omit lerp + tip-face/latch gates.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 0 | (pending) | — | headless early-abort then GUI viz=48 |
+| 1 | headless viz=16 abort=1 | **FAIL** 0/1 (inflate too tight) | revert inflate; retest |
+| 2 | (pending) | — | headless then GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -870,6 +873,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:08 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:23 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

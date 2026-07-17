@@ -9,6 +9,8 @@
 2. **`collision.yaml`** — standoff/nudge 12 mm, inflate 6 mm, tip-omit max 14 mm,
    `contact_axis_tolerance_rad` 0.26.
 3. Mid-path graze latch + tip-face tighten retained (spec frozen failures).
+4. Iter1 headless: inflate/standoff 6/12 mm caused approach IK wall —
+   reverted to inflate 0 / standoff 8 mm; kept axial tip-omit.
 
 ## Spec: freeze mandatory contact failure conditions (2026-07-17)
 

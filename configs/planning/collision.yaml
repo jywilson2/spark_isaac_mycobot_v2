@@ -100,11 +100,11 @@ contact_axis_enabled: true
 # Distance outside the marker surface where tip spheres stay ON (meters).
 # Set to 12 mm (lockstep with tip-omit allow; was briefly 20 mm) so the spheres-ON approach clears the visual sphere with the
 # proximal arm before the short tip-omit nudge (reduces "target hits arm side").
-contact_standoff_m: 0.012
+contact_standoff_m: 0.008
 # Nominal tip-omit axial length (meters); typically equals contact_standoff_m.
-contact_nudge_m: 0.012
+contact_nudge_m: 0.008
 # Hard cap on tip-omit Cartesian length (meters).
-contact_nudge_max_m: 0.014
+contact_nudge_max_m: 0.012
 # Tip-omit final segment cap (meters) after a recovery via. Kept SHORT on
 # purpose: with tip/flange spheres OFF, a long axial nudge lets the EE barrel
 # sweep *through* the volumetric marker (the "moves through the red sphere"
@@ -113,15 +113,15 @@ contact_nudge_max_m: 0.014
 # this short tip-omit nudge onto the pierce point. Do NOT raise this (or add
 # a multi-cm tip-omit fallback) to "make far vias pass" — that reintroduces
 # side/back EE hits and through-sphere false greens.
-contact_via_nudge_max_m: 0.014
+contact_via_nudge_max_m: 0.012
 contact_lateral_tolerance_m: 0.003
 # Max tool-axis misalignment (rad) for green tip-face contact validation.
 # Keep ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD (≈15° / 0.26) — do not loosen for greens.
 contact_axis_tolerance_rad: 0.26
 # Extra radius (meters) on the *spheres-ON approach* obstacle only (visual stays
-# 12 mm). Keeps MotionGen tip outside the tip-face shell until oriented standoff
-# so mid-path side_graze is less likely before tip-omit.
-target_obstacle_inflate_m: 0.006
+# 12 mm). 0.0 = known-good tip-face stack; inflate>0 caused wall of approach
+# IK_FAIL in iter1 (2026-07-17). Tip-omit uses visual radius via obs_contact.
+target_obstacle_inflate_m: 0.0
 
 # GUI debug: translucent mesh-fitted collision spheres
 # (`--show-collision-spheres` / ISAAC_VIZ_SHOW_COLLISION_SPHERES). Enabled by
