@@ -119,14 +119,15 @@ from far via tip). Axial tip-omit relax helped (got past Ep4).
 path clean**: `ok=11 fail=0 rate=1.000` but `skip_unreachable=24/40`
 (`skip_frac=0.600 > 0.250`); only filled 11/16 episodes (pool exhausted).
 
-**Iter25 change:** filter viz candidates to **Dexterous Region only** (not
-merely prefer/sort) so out-of-region poses never inflate skip_frac (iter24
-contact rate=1.0 failed skip gate 0.60). Use ``n_poses≥80`` to fill 16 eps.
+**Iter25 smoke:** headless viz=16 n_poses=80 abort=1 → **FAIL** `ok=11 fail=1`
+— skip gate fixed (`skip_unreachable=0`); Ep12 `PLAN_FAIL via_attempts=0`
+(recovery timeout). Contact path held rate=1.0 through Ep11.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
 | 24 | headless viz=16 abort=1 | **FAIL** skip 0.60 (contact 11/11 ok) | filter dex region |
-| 25 | headless viz=16 n_poses=80 | **RUNNING** | await fill+gates |
+| 25 | headless viz=16 n_poses=80 | **FAIL** 11/12 Ep12 timeout | recover Ep12 |
+| 26 | headless (pending) | — | then long GUI viz=48 |
 
 
 ## Spec freeze — contact failures (2026-07-17)
