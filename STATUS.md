@@ -83,11 +83,19 @@ SETTLE_RESTORE fired at shell boundary (secondary).
 **DLS standoff approach** (same gates as MotionGen); SETTLE_RESTORE needs
 0.5 mm past shell (not equality).
 
+**Iter17 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — Ep8
+trial=28: MotionGen `INVALID_START_STATE_WORLD_COLLISION` → DLS `approach_ok`
+then runtime `SIDE_GRAZE` lat=10.9 mm (sparse shell samples missed the chord).
+
+**Iter18 change:** densify tip-face path check + near-field lateral corridor
+(``r+standoff+4mm``); DLS approach ``n_samples=48``, stride=1 densify=64.
+
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
 | 15 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 settle 20.4 mm | restore q_at_contact |
 | 16 | headless viz=16 abort=1 | **FAIL** 9/10 — Ep10 DLS side_graze | tip-face gate on DLS |
-| 17 | headless (pending) | — | then long GUI viz=48 |
+| 17 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 DLS chord miss | densify+corridor |
+| 18 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -1034,6 +1042,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:34 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:38 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

@@ -1,5 +1,15 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter18: Densify tip-face path + near-field lateral corridor (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py` ``tip_path_tip_face_ok``** — densify joint polyline (≥48
+   samples); reject tips inside ``r+standoff+4mm`` with lateral >
+   tip-face radius (iter17 Ep8: DLS ``approach_ok`` then runtime side_graze).
+2. **DLS approach** — ``n_samples=48``; tip-face check ``stride=1``,
+   ``densify_n=64``.
+
 ## Iter17: Tip-face / arm-body gates on DLS standoff approach (2026-07-17)
 
 **Enumerated changes**

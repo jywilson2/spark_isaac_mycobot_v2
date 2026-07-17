@@ -258,13 +258,21 @@ def tip_path_tip_face_ok(
     model: UrdfKinematicModel,
     cfg: dict,
     stride: int = 1,
+    densify_n: int = 48,
 ) -> tuple[bool, str]:
     """Return ``(ok, reason)`` — reject shell samples that are side/through/flipped.
 
     Imports ``classify_tip_contact`` via repo root (``isaac_sim`` is outside the
     residual package path).
+
+    Also rejects **near-field lateral corridor** breaches (tip within
+    ``r + standoff + 4 mm`` of the center but farther than the tip-face radius
+    from the approach axis). Sparse joint-lerp samples can miss a brief shell
+    graze (iter17 Ep8: DLS approach_ok then runtime ``SIDE_GRAZE`` lat=11 mm);
+    densify + corridor catch those chords before execution.
     """
     classify_tip_contact = None
+    tip_face_radius_m = 0.004
     try:
         import sys
         from pathlib import Path
@@ -272,16 +280,40 @@ def tip_path_tip_face_ok(
         _repo = Path(__file__).resolve().parents[3]
         if str(_repo) not in sys.path:
             sys.path.insert(0, str(_repo))
-        from isaac_sim.target_marker import classify_tip_contact as _ctc
+        from isaac_sim.target_marker import (
+            TARGET_MARKER_TIP_FACE_RADIUS_M,
+            classify_tip_contact as _ctc,
+        )
 
         classify_tip_contact = _ctc
+        tip_face_radius_m = float(TARGET_MARKER_TIP_FACE_RADIUS_M)
     except Exception:
         return True, "classify_unavailable"
     wp = np.asarray(waypoints_rad, dtype=float)
     if wp.ndim != 2 or wp.shape[0] == 0:
         return False, "empty_path"
+    # Densify joint path so brief chord grazes are not skipped between samples.
+    n_dense = max(int(densify_n), int(wp.shape[0]))
+    if wp.shape[0] < n_dense:
+        from residual_adaptive_ik.planning.joint_path import interpolate_joint_path
+
+        # Piecewise densify along the existing waypoint polyline.
+        chunks: list[np.ndarray] = []
+        segs = max(1, wp.shape[0] - 1)
+        per = max(2, int(np.ceil(n_dense / segs)))
+        for i in range(segs):
+            chunk = interpolate_joint_path(wp[i], wp[i + 1], n_samples=per)
+            if i < segs - 1:
+                chunk = chunk[:-1]
+            chunks.append(chunk)
+        wp = np.vstack(chunks)
     center = np.asarray(sphere_center_m, dtype=float).reshape(3)
     standoff_ref = np.asarray(approach_from_m, dtype=float).reshape(3)
+    delta_ap = center - standoff_ref
+    ap_n = float(np.linalg.norm(delta_ap))
+    approach_u = delta_ap / ap_n if ap_n > 1e-9 else np.array([0.0, 0.0, 1.0])
+    standoff_m = float(cfg.get("contact_standoff_m", 0.008))
+    near_m = float(sphere_radius_m) + standoff_m + 0.004
     step = max(1, int(stride))
     latch_axis = max(
         0.50,
@@ -291,6 +323,14 @@ def tip_path_tip_face_ok(
         pose_tf = forward_kinematics(q_tf, model=model)
         tip_tf = np.asarray(pose_tf.position_m, dtype=float).reshape(3)
         d_tf = float(np.linalg.norm(tip_tf - center))
+        if d_tf > near_m:
+            continue
+        # Near-field lateral corridor (before / at shell).
+        v = tip_tf - center
+        axial = float(np.dot(v, approach_u))
+        lat = float(np.linalg.norm(v - axial * approach_u))
+        if lat > tip_face_radius_m + 1e-4:
+            return False, "side_graze"
         if d_tf > float(sphere_radius_m) + 0.008:
             continue
         _fok, freason, fm = classify_tip_contact(
@@ -1126,7 +1166,7 @@ def try_oriented_tip_face_contact(
                         sphere_radius_m=sphere_radius_m,
                         model=mdl,
                         dt_s=last_dt,
-                        n_samples=24,
+                        n_samples=48,
                     )
                     log.append(f"contact_approach_dls_q{qi}:{leg_ap.message}")
                     last_dt = float(leg_ap.dt_s)
@@ -1210,7 +1250,8 @@ def try_oriented_tip_face_contact(
                                 approach_from_m=standoff_ref,
                                 model=mdl,
                                 cfg=cfg,
-                                stride=max(1, wp_dls.shape[0] // 24),
+                                stride=1,
+                                densify_n=64,
                             )
                             if not tf_ok:
                                 log.append(
