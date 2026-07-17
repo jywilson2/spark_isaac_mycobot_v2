@@ -889,3 +889,9 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:29 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
