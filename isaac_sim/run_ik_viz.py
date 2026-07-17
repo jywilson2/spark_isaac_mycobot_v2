@@ -83,6 +83,7 @@ from isaac_sim.target_marker import (  # noqa: E402
     TARGET_MARKER_CONTACT_DISTANCE_M,
     TARGET_MARKER_RADIUS_M,
     TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M,
+    TARGET_MARKER_TOOL_AXIS_TOL_RAD,
     classify_tip_contact,
     ee_contacts_target,
     marker_rgb_for_state,
@@ -1229,7 +1230,7 @@ def run_viz(args: argparse.Namespace) -> int:
                     and reason not in contact_diag["logged_reasons"]
                 ):
                     contact_diag["logged_reasons"].add(reason)
-                    if reason in ("side_graze", "wrong_side_axis"):
+                    if reason == "side_graze":
                         contact_diag["mid_path_side_or_back"] = True
                         contact_diag["mid_path_reject_metrics"] = {
                             "reason": reason,
@@ -1246,6 +1247,34 @@ def run_viz(args: argparse.Namespace) -> int:
                                 )
                             ),
                         }
+                    elif reason == "wrong_side_axis":
+                        # Latch only clear side/barrel (~90°) or flipped/back
+                        # (~180°). Near-tol tip-face misses (e.g. axis_out≈15–20°
+                        # just over TOOL_AXIS_TOL) are settled by CONTACT_HOLD —
+                        # mid-path latching those caused false PLAN_FAIL after
+                        # honest greens (iter9 Ep8).
+                        axis_out = float(
+                            metrics.get("axis_out_err_rad", float("nan"))
+                        )
+                        latch_axis = max(
+                            0.50,
+                            2.0 * float(TARGET_MARKER_TOOL_AXIS_TOL_RAD),
+                        )
+                        if np.isfinite(axis_out) and axis_out > latch_axis:
+                            contact_diag["mid_path_side_or_back"] = True
+                            contact_diag["mid_path_reject_metrics"] = {
+                                "reason": reason,
+                                "dist_mm": float(metrics["dist_m"]) * 1e3,
+                                "lat_mm": float(
+                                    metrics.get("lateral_m", float("nan"))
+                                )
+                                * 1e3,
+                                "axis_out_deg": float(np.degrees(axis_out)),
+                            }
+                    if contact_diag.get("mid_path_side_or_back") and reason in (
+                        "side_graze",
+                        "wrong_side_axis",
+                    ):
                         # #region agent log
                         _agent_debug_log(
                             "A",

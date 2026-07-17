@@ -47,14 +47,19 @@ CONTACT_HOLD ran (14.0→pierce) but used current wrist quat → settle
 mid-path `wrong_side_axis` axis_out=174° (flipped wrist on new marker while
 still on Ep1 handoff). CONTACT_HOLD pad-facing IK did not converge.
 
-**Iter9 change:** after sequential PLAN_OK, retract tip 50 mm along outward
-normal (`SEQUENTIAL_RETRACT`) before the next episode.
+**Iter9 smoke:** headless viz=16 abort=1 → **FAIL** `ok=7 fail=1` — big
+progress (retract helped). Ep8 settle/midpath `wrong_side_axis` at
+axis_out=15–17° (just over tip-face tol) — mid-path latch was too aggressive.
+
+**Iter10 change:** mid-path latch for `wrong_side_axis` only when
+``axis_out > max(0.50, 2×TOOL_AXIS_TOL)`` (~29°); near-tol misses go through
+CONTACT_HOLD. `side_graze` still always latches.
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 1–7 | (see above) | approach / drift / outer / axis | — |
-| 8 | headless viz=16 abort=1 | **FAIL** 1/2 — midpath axis_out=174° | sequential retract |
-| 9 | headless (pending) | — | then long GUI viz=48 |
+| 1–8 | (see above) | approach / drift / midpath π | — |
+| 9 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 axis_out≈15–17° | latch threshold |
+| 10 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
@@ -953,6 +958,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:45 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 13:47 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

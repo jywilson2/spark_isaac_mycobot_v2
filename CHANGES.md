@@ -1,5 +1,16 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter10: Mid-path wrong_side latch only for clear side/back (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — `wrong_side_axis` mid-path latch requires
+   ``axis_out > max(0.50 rad, 2×TOOL_AXIS_TOL)``; near-tol tip-face misses
+   (≈15–20°) no longer force PLAN_FAIL via mid-path latch. `side_graze`
+   still always latches. Spec: clear side/back grazes remain failures.
+
+**Review:** Confirm axis_out≈90°/180° samples still latch; Ep8-style 15° does not.
+
 ## Iter9: Sequential post-contact tip retract (2026-07-17)
 
 **Enumerated changes**
