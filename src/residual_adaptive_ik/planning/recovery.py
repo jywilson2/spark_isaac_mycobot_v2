@@ -53,7 +53,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from residual_adaptive_ik.geometry.collision import SphereObstacle
+from residual_adaptive_ik.geometry.collision import SphereObstacle, proximal_arm_contacts_target
 from residual_adaptive_ik.kinematics.fk import Pose, forward_kinematics
 from residual_adaptive_ik.kinematics.ik_seed_bank import (
     build_seed_bank,
@@ -949,6 +949,47 @@ def try_oriented_tip_face_contact(
                             backend=getattr(leg_ap, "backend", "curobo"),
                             message="plan_failed:tip_immerses_marker_path",
                         )
+                    if leg_ap.ok:
+                        # Reject approaches where a proximal arm capsule clips
+                        # the marker (iter11 Ep6 MARKER_ARM_SWEEP seg_2).
+                        arm_r = float(
+                            cfg.get(
+                                "arm_sweep_link_radius_m",
+                                cfg.get("link_radius_m", 0.012),
+                            )
+                        )
+                        n_ign = int(
+                            cfg.get("arm_sweep_n_ee_segments_ignored", 3)
+                        )
+                        stride_arm = max(1, wp_chk.shape[0] // 16)
+                        for q_arm in wp_chk[::stride_arm]:
+                            arm_hit = proximal_arm_contacts_target(
+                                q_arm,
+                                sphere_center_m,
+                                target_radius_m=sphere_radius_m,
+                                model=mdl,
+                                link_radius_m=arm_r,
+                                n_ee_segments_ignored=n_ign,
+                            )
+                            if arm_hit.collides:
+                                log.append(
+                                    f"contact_approach_q{qi}:arm_body_path|"
+                                    f"reasons={list(arm_hit.reasons)}"
+                                )
+                                _decision(
+                                    decision_emit,
+                                    log,
+                                    f"approach_reject_arm_body q{qi} "
+                                    f"reasons={list(arm_hit.reasons)}",
+                                )
+                                leg_ap = PlannedTrajectory(
+                                    waypoints_rad=np.zeros((0, 6)),
+                                    dt_s=last_dt,
+                                    success=False,
+                                    backend=getattr(leg_ap, "backend", "curobo"),
+                                    message="plan_failed:arm_body_on_approach",
+                                )
+                                break
                 if leg_ap.ok:
                     quat = np.asarray(quat_try, dtype=float).reshape(4)
                     chosen_quat = quat.copy()

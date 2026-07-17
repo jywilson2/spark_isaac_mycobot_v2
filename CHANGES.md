@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter12: Reject approaches with proximal arm ∩ marker (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — after MotionGen approach OK, sample waypoints with
+   `proximal_arm_contacts_target` (same radii as viz arm-sweep); reject
+   `plan_failed:arm_body_on_approach` and try next cone / DLS / via.
+
 ## Iter11: Reject tip-immersing MotionGen approach paths (2026-07-17)
 
 **Enumerated changes**

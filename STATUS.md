@@ -59,12 +59,13 @@ Honest latch.
 `PLAN_FAIL(arm_body_contact)` (proximal link ∩ marker). Tip immersion reject
 helped past Ep5-style through paths.
 
+**Iter12 change:** reject MotionGen approaches whose proximal arm capsules
+intersect the marker mid-path (same monitor as settle `arm_body_contact`).
+
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
-| 9 | headless viz=16 abort=1 | **FAIL** 7/8 — Ep8 axis_out≈15–17° | latch threshold |
-| 10 | headless viz=16 abort=1 | **FAIL** 4/5 — Ep5 tip through | reject immersing approaches |
-| 11 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 arm_body_contact | keep arm clear of marker |
-| 12 | (next) | — | then long GUI viz=48 |
+| 11 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 arm_body_contact | reject arm-body approaches |
+| 12 | headless (pending) | — | then long GUI viz=48 |
 
 ## Spec freeze — contact failures (2026-07-17)
 
