@@ -103,8 +103,12 @@ not recover (settle 74.4 mm + EE side sphere). Refuse-after-reseat worked.
 stop-on-green held tip at 12.2 mm, but CONTACT_HOLD position-relaxed IK
 worsened axis_out 15°→17° → `PLAN_FAIL(invalid_side)`.
 
-**Iter21 change:** skip CONTACT_HOLD after stop-on-green; tighten hold ori
-tol to 0.10 rad; reject hold poses that fail tip-face classify.
+**Iter21 smoke:** headless viz=16 abort=1 → **FAIL** `ok=5 fail=1` — Ep6
+`PLAN_FAIL` recovery_timeout (EE_CLOSE): tip-omit refused at pad 0.260≈tol,
+then tip-face gates blocked vias.
+
+**Iter22 change:** tip-omit pad gate +1 mrad / +0.01 rad after reseat (FK
+noise); near-field lateral corridor tip-face+2 mm (not settle classify).
 
 | Iter | Smoke | Outcome | Next |
 |------|-------|---------|------|
@@ -114,7 +118,8 @@ tol to 0.10 rad; reject hold poses that fail tip-face classify.
 | 18 | headless viz=16 abort=1 | **FAIL** 2/3 — Ep3 tip-omit pad_ok=0 | refuse+hold tip check |
 | 19 | headless viz=16 abort=1 | **FAIL** 6/7 — Ep7 post-green drift 72 mm | stop on green |
 | 20 | headless viz=16 abort=1 | **FAIL** 3/4 — Ep4 CONTACT_HOLD 17° | skip hold on green |
-| 21 | headless (pending) | — | then long GUI viz=48 |
+| 21 | headless viz=16 abort=1 | **FAIL** 5/6 — Ep6 timeout pad≈tol | reseat near-tol |
+| 22 | headless (pending) | — | then long GUI viz=48 |
 
 
 ## Spec freeze — contact failures (2026-07-17)
@@ -1086,6 +1091,12 @@ No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skippe
 
 
 ## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 14:58 -0700)
+
+No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
+
+
+
+## SKIPPED_UNREACHABLE analysis (auto, 2026-07-17 15:09 -0700)
 
 No `SKIPPED_UNREACHABLE` episodes in this run — the dexterity prescreen skipped nothing (all planned targets were orientation-feasible, or the prescreen was disabled).
 

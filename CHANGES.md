@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter22: Tip-omit reseat near-tol + soften near-field corridor (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py`** — pad tip-omit gate ``tol+1e-3``; after reseat allow
+   ``tol+0.01`` for tip-omit eligibility (iter21 Ep6 0.260≈tol); near-field
+   lateral corridor tip-face+2 mm.
+
 ## Iter21: Skip CONTACT_HOLD after stop-on-green (2026-07-17)
 
 **Enumerated changes**

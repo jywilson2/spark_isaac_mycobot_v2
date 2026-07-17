@@ -329,7 +329,7 @@ def tip_path_tip_face_ok(
         v = tip_tf - center
         axial = float(np.dot(v, approach_u))
         lat = float(np.linalg.norm(v - axial * approach_u))
-        if lat > tip_face_radius_m + 1e-4:
+        if lat > tip_face_radius_m + 0.002:
             return False, "side_graze"
         if d_tf > float(sphere_radius_m) + 0.008:
             continue
@@ -452,7 +452,7 @@ def fk_pad_aligned_for_tip_omit(
             pose.quaternion_wxyz, normal_outward
         )
     )
-    return err <= axis_tol + 1e-9, err, axis_tol
+    return err <= axis_tol + 1e-3, err, axis_tol
 
 
 def tip_standoff_on_approach(
@@ -1542,6 +1542,17 @@ def try_oriented_tip_face_contact(
                 model=mdl,
                 cfg=cfg,
             )
+            # FK after MotionGen reseat often sits just over tol (iter21 Ep6:
+            # prints as 0.260>0.260). Allow +0.01 rad (~0.6°) for tip-omit
+            # eligibility only — settle tip-face classify stays at TOOL_AXIS_TOL.
+            if (not aligned2) and axis_err2 <= axis_tol2 + 0.01:
+                aligned2 = True
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_reseat_near_tol axis_err_rad={axis_err2:.3f} "
+                    f"tol_rad={axis_tol2:.3f} (+0.01 rad tip-omit margin)",
+                )
             pad_ok_for_motiongen = bool(aligned2)
             axis_err, axis_tol = axis_err2, axis_tol2
             _decision(
@@ -1554,9 +1565,7 @@ def try_oriented_tip_face_contact(
                 chosen_quat = np.asarray(reseat_quat, dtype=float).reshape(4)
                 quat = chosen_quat
             else:
-                # Refuse tip-omit when reseat cannot pad-align (iter18 Ep3:
-                # pad_ok=0 still ran axial_lerp → WRONG_SIDE flash then
-                # CONTACT_HOLD blew tip to 36 mm / no_contact). Prefer vias.
+                # Refuse tip-omit when reseat cannot pad-align (iter18 Ep3).
                 log.append(
                     f"contact_nudge_refused:pad_misaligned_after_reseat:"
                     f"axis_err={axis_err2:.3f}>tol={axis_tol2:.3f}"

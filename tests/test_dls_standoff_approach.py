@@ -133,3 +133,26 @@ def test_tip_path_tip_face_ok_rejects_near_field_lateral():
     )
     assert not ok
     assert reason == "side_graze"
+
+
+def test_tip_path_allows_small_near_field_lateral():
+    """Corridor allows up to tip-face + 2 mm (iter22 soften)."""
+    from residual_adaptive_ik.planning.recovery import tip_path_tip_face_ok
+
+    mdl = get_default_model()
+    q = np.zeros(6)
+    tip = np.asarray(forward_kinematics(q, model=mdl).position_m, dtype=float)
+    # ~3 mm lateral inside tip-face+2mm corridor → should pass lateral gate
+    # (may still fail classify if in shell — place just outside shell).
+    center = tip + np.array([0.025, 0.003, 0.0])
+    standoff = center + np.array([0.020, 0.0, 0.0])
+    ok, reason = tip_path_tip_face_ok(
+        np.vstack([q, q]),
+        sphere_center_m=center,
+        sphere_radius_m=0.012,
+        approach_from_m=standoff,
+        model=mdl,
+        cfg={"contact_standoff_m": 0.008, "contact_axis_tolerance_rad": 0.26},
+        densify_n=8,
+    )
+    assert ok, reason
