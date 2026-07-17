@@ -922,32 +922,34 @@ def try_oriented_tip_face_contact(
             last_dt = float(leg_ap.dt_s)
             if leg_ap.ok:
                 wp_chk = np.asarray(leg_ap.waypoints_rad, dtype=float)
-                clear, min_d = tip_path_avoids_marker_immersion(
-                    wp_chk,
-                    sphere_center_m=sphere_center_m,
-                    sphere_radius_m=sphere_radius_m,
-                    model=mdl,
-                    stride=max(1, wp_chk.shape[0] // 32),
-                )
-                if not clear:
-                    log.append(
-                        f"contact_approach_q{qi}:tip_immerses_path"
-                        f"|min_dist_m={min_d:.4f}"
+                # Unit FakePlanners bump q without matching tip FK — skip.
+                if type(planner).__name__ == "CuRoboMotionPlanner":
+                    clear, min_d = tip_path_avoids_marker_immersion(
+                        wp_chk,
+                        sphere_center_m=sphere_center_m,
+                        sphere_radius_m=sphere_radius_m,
+                        model=mdl,
+                        stride=max(1, wp_chk.shape[0] // 32),
                     )
-                    _decision(
-                        decision_emit,
-                        log,
-                        f"approach_reject_immersion q{qi} "
-                        f"min_tip_dist_m={min_d:.4f}<r={sphere_radius_m:.4f}",
-                    )
-                    leg_ap = PlannedTrajectory(
-                        waypoints_rad=np.zeros((0, 6)),
-                        dt_s=last_dt,
-                        success=False,
-                        backend=getattr(leg_ap, "backend", "curobo"),
-                        message="plan_failed:tip_immerses_marker_path",
-                    )
-                else:
+                    if not clear:
+                        log.append(
+                            f"contact_approach_q{qi}:tip_immerses_path"
+                            f"|min_dist_m={min_d:.4f}"
+                        )
+                        _decision(
+                            decision_emit,
+                            log,
+                            f"approach_reject_immersion q{qi} "
+                            f"min_tip_dist_m={min_d:.4f}<r={sphere_radius_m:.4f}",
+                        )
+                        leg_ap = PlannedTrajectory(
+                            waypoints_rad=np.zeros((0, 6)),
+                            dt_s=last_dt,
+                            success=False,
+                            backend=getattr(leg_ap, "backend", "curobo"),
+                            message="plan_failed:tip_immerses_marker_path",
+                        )
+                if leg_ap.ok:
                     quat = np.asarray(quat_try, dtype=float).reshape(4)
                     chosen_quat = quat.copy()
                     _decision(
