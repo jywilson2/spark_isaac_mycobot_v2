@@ -115,6 +115,10 @@ contact_nudge_max_m: 0.012
 # side/back EE hits and through-sphere false greens.
 contact_via_nudge_max_m: 0.012
 contact_lateral_tolerance_m: 0.003
+# Tip-omit IK may target a tip-face surface patch within this lateral disk
+# (meters) when the exact pierce is unreachable. Cap = tip-face classify disk
+# (TARGET_MARKER_TIP_FACE_RADIUS_M ≈ 4 mm) — do not raise above tip-face.
+contact_tip_omit_patch_lateral_m: 0.004
 # Max tool-axis misalignment (rad) for green tip-face contact validation.
 # Keep ≤ TARGET_MARKER_TOOL_AXIS_TOL_RAD (≈15° / 0.26) — do not loosen for greens.
 contact_axis_tolerance_rad: 0.26

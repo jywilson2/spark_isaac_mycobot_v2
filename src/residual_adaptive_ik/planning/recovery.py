@@ -193,6 +193,11 @@ def _tip_face_patch_targets_m(
     return out
 
 
+# Tip-omit patch stays inside the tip-face disk (TARGET_MARKER_TIP_FACE_RADIUS_M
+# ≈ 4 mm). Do not raise above tip-face classify — this is IK reachability only.
+_DEFAULT_TIP_OMIT_PATCH_LATERAL_M = 0.004
+
+
 def plan_axial_tip_omit_lerp(
     q_start_rad: np.ndarray,
     pierce_position_m: np.ndarray,
@@ -203,7 +208,7 @@ def plan_axial_tip_omit_lerp(
     n_samples: int = 12,
     sphere_center_m: np.ndarray | None = None,
     sphere_radius_m: float | None = None,
-    patch_lateral_max_m: float = 0.003,
+    patch_lateral_max_m: float = _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
 ) -> PlannedTrajectory:
     """Short tip-omit standoff→pierce via DLS-IK + joint lerp (not MotionGen).
 
@@ -243,6 +248,8 @@ def plan_axial_tip_omit_lerp(
             center,
             radius,
             patch_lateral_max_m=float(patch_lateral_max_m),
+            n_lateral=4,
+            n_azimuth=12,
         )[1:]:
             # Rebuild pad-facing quat for this surface point (same cone family).
             ap_t = build_sphere_contact_approach(
@@ -1464,7 +1471,10 @@ def try_oriented_tip_face_contact(
                     sphere_center_m=sphere_center_m,
                     sphere_radius_m=sphere_radius_m,
                     patch_lateral_max_m=float(
-                        cfg.get("contact_lateral_tolerance_m", 0.003)
+                        cfg.get(
+                            "contact_tip_omit_patch_lateral_m",
+                            _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
+                        )
                     ),
                 )
                 if not leg_nudge.ok:
@@ -1729,7 +1739,10 @@ def try_oriented_tip_face_contact(
         sphere_center_m=sphere_center_m,
         sphere_radius_m=sphere_radius_m,
         patch_lateral_max_m=float(
-            cfg.get("contact_lateral_tolerance_m", 0.003)
+            cfg.get(
+                "contact_tip_omit_patch_lateral_m",
+                _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
+            )
         ),
     )
     if not leg_nudge.ok:
@@ -1742,6 +1755,12 @@ def try_oriented_tip_face_contact(
                 fallback_quaternion_wxyz=pose_omit.quaternion_wxyz,
                 cfg=cfg,
             )
+            patch_lat = float(
+                cfg.get(
+                    "contact_tip_omit_patch_lateral_m",
+                    _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
+                )
+            )
             for qi, quat_try in enumerate(omit_quats):
                 if np.allclose(quat_try, quat, atol=1e-9):
                     continue
@@ -1753,9 +1772,7 @@ def try_oriented_tip_face_contact(
                     dt_s=last_dt,
                     sphere_center_m=sphere_center_m,
                     sphere_radius_m=sphere_radius_m,
-                    patch_lateral_max_m=float(
-                        cfg.get("contact_lateral_tolerance_m", 0.003)
-                    ),
+                    patch_lateral_max_m=patch_lat,
                 )
                 if leg_alt.ok:
                     _decision(

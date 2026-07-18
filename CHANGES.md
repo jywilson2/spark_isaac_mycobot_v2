@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter31: Tip-omit patch lateral = tip-face disk 4 mm (2026-07-17)
+
+**Enumerated changes**
+
+1. **`contact_tip_omit_patch_lateral_m: 0.004`** — match tip-face classify disk
+   (GUI Ep24: 3 mm patch + curobo tip-omit → side_graze timeout; 4 mm unlocks).
+2. **Denser patch grid** (4 laterals × 12 azimuths).
+3. **`tests/test_axial_tip_omit_patch.py`** — Ep24-like contract.
+
 ## Iter29: Tip-face patch axial tip-omit when exact pierce IK-fails (2026-07-17)
 
 **Result:** headless viz=16 **PASS** ok=16 fail=0 rate=1.000 skip_frac=0 (`/tmp/headless_iter29.log`). Next: long GUI viz=48.
