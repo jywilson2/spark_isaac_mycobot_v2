@@ -1,10 +1,36 @@
 # The last prompt executed in the Cursor Agent window:
 
-## BEGIN: 2026-07-17 22:31 +0000
-Limit your analysis to the entries in change.md that are prefixed with "iter:"
+## BEGIN: 2026-07-17 19:34 -0700
+Failure drill-down + handoff/far-tip fix
+
+Implement the plan as specified, it is attached for your reference. Do NOT edit the plan file itself.
+
+To-do's from the plan have already been created. Do not create them again. Mark them as in_progress as you work, starting with the first one. Don't stop until you have completed all the to-dos.
 ## END
 
 # Old prompts:
+
+## BEGIN: 2026-07-17 19:21 -0700
+I aborted this iteration because it is not clear that convergence is possible with the current approach. Instead I would prefer the following:
+
+Examine each failed test since the beginning and label the failure. Create a table showing the frequency of each type of error identified and display it a separate subagent window. Return to the main agent, and start with the most common failure and work to resolve this failure before moving on to the next. Essentially drill down into each type of failure one-at-time. Adjust the testing criteria as needed so only the one particular failure case being addressed is tested.
+
+Once a particular issue is resolved, commit the change and push to wip_change3 on github. Then move to the next most common issue and perform the same process, again limiting test coverage to the issue in question.
+
+Once all issues have been addressed then reenable all verification tests, and attempt a full GUI test. A passing success rate this time, is .95 or higher.
+
+Before you begin work described above, fix the following bug identified in past tests:
+
+"handoff/far-tip bug"
+## END
+
+## BEGIN: 2026-07-17 14:28 -0700
+Continue as planned
+## END
+
+## BEGIN: 2026-07-17 22:31 +0000
+Limit your analysis to the entries in change.md that are prefixed with "iter:"
+## END
 
 ## BEGIN: 2026-07-17 22:28 +0000
 What is the highest number for the work performed today?

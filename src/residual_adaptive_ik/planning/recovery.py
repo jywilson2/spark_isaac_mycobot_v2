@@ -829,6 +829,7 @@ def try_move_to_preparatory_seed(
     allow_planned: bool = True,
     max_seeds: int = 4,
     dt_s: float = 0.02,
+    accept_seed: Callable[[np.ndarray], bool] | None = None,
 ) -> tuple[np.ndarray | None, str, list[np.ndarray]]:
     """Move toward a seed-bank preparatory configuration (radians).
 
@@ -840,10 +841,15 @@ def try_move_to_preparatory_seed(
     ``INVALID_START_*`` — MotionGen cannot leave a colliding start), fall back
     to an open-loop joint move to ``q_seed``.
 
+    Optional ``accept_seed(q_seed)`` is evaluated **before** plan/execute so a
+    rejected seed never moves the robot while leaving planner ``q_cur`` stale
+    (handoff/far-tip desync). Rejected seeds are recorded as tried and the
+    bank continues; the log tag is ``prep_seed_rejected_pre``.
+
     Returns
     -------
     ``(new_q, log_tag, updated_failed_seeds)``. ``new_q`` is None when the
-    bank is exhausted.
+    bank is exhausted (or every candidate was pre-rejected).
     """
     failed = [np.asarray(f, dtype=float).reshape(6) for f in (failed_seeds or [])]
     # Treat current as already-tried so we do not "escape" to the same pose.
@@ -860,10 +866,19 @@ def try_move_to_preparatory_seed(
         ordered = ordered[: int(max_seeds)]
 
     obs = list(obstacles or [])
+    last_reject_tag = "prep_seed_bank_exhausted"
     for q_seed in ordered:
         q_seed = _clamp_joints(q_seed)
         if joint_distance_rad(q_seed, q_cur) < 1e-3:
             failed.append(q_seed.copy())
+            continue
+
+        if accept_seed is not None and not accept_seed(q_seed):
+            # Pre-execute reject: do not plan/move — keeps sim joints == q_cur.
+            failed.append(q_seed.copy())
+            last_reject_tag = (
+                f"prep_seed_rejected_pre_d{joint_distance_rad(q_seed, q_cur):.3f}"
+            )
             continue
 
         tag = f"prep_seed_d{joint_distance_rad(q_seed, q_cur):.3f}"
@@ -903,7 +918,7 @@ def try_move_to_preparatory_seed(
         failed.append(q_seed.copy())
         return q_new, tag, failed
 
-    return None, "prep_seed_bank_exhausted", failed
+    return None, last_reject_tag, failed
 
 
 def try_radial_reposition_via(
@@ -2198,6 +2213,27 @@ def plan_via_standoff(
             and prep_seed_enabled
             and len(failed_prep_seeds) < prep_seed_max
         ):
+            # Accept before execute: shrink tip→standoff by ≥2 cm, OR keep the
+            # INVALID_START branch-escape win even if geometry worsens briefly.
+            # Post-execute reject previously desynced planner q_cur from sim.
+            standoff_xyz = np.asarray(
+                approach_probe.standoff_position_m, dtype=float
+            ).reshape(3)
+            recent_for_accept = "|".join(attempts_log[-12:]).upper()
+            allow_invalid_start_escape = "INVALID_START" in recent_for_accept
+
+            def _accept_far_tip_seed(q_seed: np.ndarray) -> bool:
+                tip_seed = np.asarray(
+                    forward_kinematics(q_seed, model=mdl).position_m,
+                    dtype=float,
+                ).reshape(3)
+                tip_to_standoff_seed = float(
+                    np.linalg.norm(tip_seed - standoff_xyz)
+                )
+                if tip_to_standoff_seed <= tip_to_standoff_fail - 0.02:
+                    return True
+                return allow_invalid_start_escape
+
             q_new, tag, failed_prep_seeds = try_move_to_preparatory_seed(
                 q_cur,
                 planner=planner,
@@ -2208,6 +2244,7 @@ def plan_via_standoff(
                 allow_planned=True,
                 max_seeds=1,
                 dt_s=last_dt,
+                accept_seed=_accept_far_tip_seed,
             )
             attempts_log.append(
                 f"far_tip_seed_reset_{tag}|tip_to_standoff_m="
@@ -2220,34 +2257,23 @@ def plan_via_standoff(
                 f"tag={tag}",
             )
             if q_new is not None:
+                # Seed already accepted pre-execute — always adopt planner state.
                 tip_new = np.asarray(
                     forward_kinematics(q_new, model=mdl).position_m,
                     dtype=float,
                 ).reshape(3)
-                tip_to_standoff_new = float(
-                    np.linalg.norm(
-                        tip_new
-                        - np.asarray(
-                            approach_probe.standoff_position_m, dtype=float
-                        ).reshape(3)
-                    )
-                )
-                # Reject seeds that leave the tip farther from the oriented
-                # standoff (iter37 Ep14: prep seed → tip_z≈0.38, tip_to_standoff
-                # 0.16→0.31). Fall through to vias instead.
-                if tip_to_standoff_new <= tip_to_standoff_fail - 0.02:
-                    q_cur = q_new
-                    tip_start = tip_new
-                    if execute_waypoints is not None:
-                        partial_execs += 1
-                    time.sleep(0.02)
-                    continue
+                q_cur = q_new
+                tip_start = tip_new
+                if execute_waypoints is not None:
+                    partial_execs += 1
+                time.sleep(0.02)
+                continue
+            if "prep_seed_rejected_pre" in tag:
                 _decision(
                     decision_emit,
                     attempts_log,
-                    f"far_tip_seed_rejected farther "
-                    f"was_m={tip_to_standoff_fail:.3f} "
-                    f"now_m={tip_to_standoff_new:.3f}",
+                    f"far_tip_seed_rejected_pre "
+                    f"tip_to_standoff_m={tip_to_standoff_fail:.3f}",
                 )
 
         # Legacy tip-omit full path only when oriented contact is disabled.

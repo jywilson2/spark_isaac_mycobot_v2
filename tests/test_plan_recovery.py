@@ -635,6 +635,129 @@ def test_try_move_to_preparatory_seed_prefers_planned_when_ok():
     assert np.allclose(q_new, q0 + np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0]))
 
 
+def test_prep_seed_accept_rejects_before_execute_keeps_joint_continuity():
+    """Far-tip desync fix: rejected seeds never execute; q stays put."""
+    from residual_adaptive_ik.planning.recovery import try_move_to_preparatory_seed
+    from residual_adaptive_ik.kinematics.urdf_model import get_default_model
+
+    class _MustNotPlan:
+        def plan_to_pose(self, *args, **kwargs):
+            raise AssertionError("plan_to_pose must not run for pre-rejected seed")
+
+        def plan_to_joint_goal(self, *args, **kwargs):
+            raise AssertionError("plan_to_joint_goal must not run for pre-rejected seed")
+
+    executed: list[np.ndarray] = []
+
+    def _exec(wp, dt):
+        executed.append(np.asarray(wp, dtype=float).copy())
+
+    q0 = np.array([0.4, -0.2, 0.1, 0.0, 0.2, -0.1], dtype=float)
+    q_new, tag, failed = try_move_to_preparatory_seed(
+        q0,
+        planner=_MustNotPlan(),  # type: ignore[arg-type]
+        model=get_default_model(),
+        execute_waypoints=_exec,
+        allow_planned=True,
+        max_seeds=4,
+        accept_seed=lambda _q: False,
+    )
+    assert q_new is None
+    assert "prep_seed_rejected_pre" in tag
+    assert executed == [], "pre-reject must not execute waypoints"
+    assert len(failed) >= 1
+    # Joint continuity invariant: planner q_cur unchanged when nothing executed.
+    assert np.allclose(q0, np.array([0.4, -0.2, 0.1, 0.0, 0.2, -0.1]))
+
+
+def test_prep_seed_accept_improving_seed_is_executed():
+    """Accept predicate True → plan/execute proceeds as before."""
+    from residual_adaptive_ik.planning.recovery import try_move_to_preparatory_seed
+    from residual_adaptive_ik.kinematics.urdf_model import get_default_model
+
+    class _AlwaysInvalidStart:
+        def plan_to_pose(self, *args, **kwargs):
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION",
+            )
+
+    executed: list[np.ndarray] = []
+
+    def _exec(wp, dt):
+        executed.append(np.asarray(wp, dtype=float).copy())
+
+    q0 = np.array([0.4, -0.2, 0.1, 0.0, 0.2, -0.1], dtype=float)
+    q_new, tag, _failed = try_move_to_preparatory_seed(
+        q0,
+        planner=_AlwaysInvalidStart(),  # type: ignore[arg-type]
+        model=get_default_model(),
+        execute_waypoints=_exec,
+        allow_planned=True,
+        max_seeds=2,
+        accept_seed=lambda _q: True,
+    )
+    assert q_new is not None
+    assert "open_loop" in tag
+    assert len(executed) == 1
+    assert float(np.linalg.norm(q_new - q0)) > 0.05
+
+
+def test_prep_seed_accept_invalid_start_worsening_still_accepted():
+    """INVALID_START escape: far-tip predicate may accept non-improving seeds."""
+    from residual_adaptive_ik.kinematics.fk import forward_kinematics
+    from residual_adaptive_ik.kinematics.urdf_model import get_default_model
+    from residual_adaptive_ik.planning.recovery import try_move_to_preparatory_seed
+
+    class _AlwaysInvalidStart:
+        def plan_to_pose(self, *args, **kwargs):
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION",
+            )
+
+    model = get_default_model()
+    q0 = np.array([0.4, -0.2, 0.1, 0.0, 0.2, -0.1], dtype=float)
+    tip0 = np.asarray(forward_kinematics(q0, model=model).position_m, dtype=float)
+    # Artificial "standoff" near tip0 so bank seeds typically do not shrink.
+    standoff = tip0.copy()
+    tip_to_standoff_fail = 0.16
+    allow_invalid_start_escape = True
+
+    def _accept(q_seed: np.ndarray) -> bool:
+        tip_seed = np.asarray(
+            forward_kinematics(q_seed, model=model).position_m, dtype=float
+        )
+        tip_to_standoff_seed = float(np.linalg.norm(tip_seed - standoff))
+        if tip_to_standoff_seed <= tip_to_standoff_fail - 0.02:
+            return True
+        return allow_invalid_start_escape
+
+    executed: list[np.ndarray] = []
+
+    def _exec(wp, dt):
+        executed.append(np.asarray(wp, dtype=float).copy())
+
+    q_new, tag, _failed = try_move_to_preparatory_seed(
+        q0,
+        planner=_AlwaysInvalidStart(),  # type: ignore[arg-type]
+        model=model,
+        execute_waypoints=_exec,
+        allow_planned=True,
+        max_seeds=2,
+        accept_seed=_accept,
+    )
+    assert q_new is not None
+    assert "prep_seed_rejected_pre" not in tag
+    assert len(executed) == 1
+
+
 def test_invalid_start_uses_prep_seed_then_falls_through_to_vias():
     """Prep-seed bank then vias — not an infinite home-blend loop."""
 

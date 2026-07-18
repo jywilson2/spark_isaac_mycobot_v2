@@ -1,5 +1,23 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Drill Phase 0: Pre-execute far-tip seed accept (handoff desync fix) (2026-07-17)
+
+**Enumerated changes**
+
+1. **`try_move_to_preparatory_seed`** — optional ``accept_seed(q_seed)`` evaluated
+   via FK **before** plan/execute; reject tag ``prep_seed_rejected_pre``; rejected
+   seeds never call ``execute_waypoints`` (joint continuity invariant).
+2. **`plan_via_standoff` far-tip block** — accept when tip_to_standoff shrinks
+   ≥2 cm **or** recent attempts include ``INVALID_START``; remove post-execution
+   reject that left sim moved while planner ``q_cur`` unchanged.
+3. **Tests** — ``test_prep_seed_accept_*`` in ``tests/test_plan_recovery.py``
+   (reject/continuity, improving accept, INVALID_START worsening accept).
+4. **Not changed** — ``tip_omit_length_allow_m`` / tip-face classify tols stay frozen.
+
+**Review recommended:** INVALID_START escape still allows a worsening seed when
+recent logs contain that token — intentional for Ep3 branch-escape; watch Ep14
+timeouts separately under Phase 1a.
+
 ## Iter38: Reject far-tip seeds that increase tip_to_standoff (2026-07-17)
 
 **Enumerated changes**
