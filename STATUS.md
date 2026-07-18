@@ -147,7 +147,7 @@ iter25 **11/12** + skip_frac=0; iter24 contact **11/11 rate=1.0**.
 | 30 | GUI viz=48 n_poses=80 | **FAIL** 23/24 Ep24 recovery_timeout (axial 3mm + curobo side_graze) | tip-omit patch 4 mm |
 | 31 | GUI viz=48 n_poses=80 | **FAIL** 5/6 Ep6 invalid_side (axis_out≈17°) | end tip-face gate |
 | 32 | GUI viz=48 n_poses=80 | **FAIL** 8/9 Ep9 recovery_timeout (tip_omit side_graze after DLS) | tip-omit cone retry |
-| 33 | GUI viz=48 n_poses=80 | **PENDING** tip-omit cone retry | await rate=1.0 |
+| 33 | GUI viz=48 n_poses=80 | **RUNNING** `/tmp/gui_iter33.log` | await rate=1.0 |
 
 
 
