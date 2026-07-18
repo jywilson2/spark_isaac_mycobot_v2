@@ -2220,12 +2220,35 @@ def plan_via_standoff(
                 f"tag={tag}",
             )
             if q_new is not None:
-                q_cur = q_new
-                tip_start = forward_kinematics(q_cur, model=mdl).position_m
-                if execute_waypoints is not None:
-                    partial_execs += 1
-                time.sleep(0.02)
-                continue
+                tip_new = np.asarray(
+                    forward_kinematics(q_new, model=mdl).position_m,
+                    dtype=float,
+                ).reshape(3)
+                tip_to_standoff_new = float(
+                    np.linalg.norm(
+                        tip_new
+                        - np.asarray(
+                            approach_probe.standoff_position_m, dtype=float
+                        ).reshape(3)
+                    )
+                )
+                # Reject seeds that leave the tip farther from the oriented
+                # standoff (iter37 Ep14: prep seed → tip_z≈0.38, tip_to_standoff
+                # 0.16→0.31). Fall through to vias instead.
+                if tip_to_standoff_new <= tip_to_standoff_fail - 0.02:
+                    q_cur = q_new
+                    tip_start = tip_new
+                    if execute_waypoints is not None:
+                        partial_execs += 1
+                    time.sleep(0.02)
+                    continue
+                _decision(
+                    decision_emit,
+                    attempts_log,
+                    f"far_tip_seed_rejected farther "
+                    f"was_m={tip_to_standoff_fail:.3f} "
+                    f"now_m={tip_to_standoff_new:.3f}",
+                )
 
         # Legacy tip-omit full path only when oriented contact is disabled.
         if not bool(cfg.get("contact_axis_enabled", True)):

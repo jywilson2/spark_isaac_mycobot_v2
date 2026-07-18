@@ -1,5 +1,12 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter38: Reject far-tip seeds that increase tip_to_standoff (2026-07-17)
+
+**Enumerated changes**
+
+1. **Far-tip seed reset** — accept only if tip_to_standoff shrinks by ≥2 cm
+   (iter37 Ep14: prep seed moved tip farther 0.16→0.31 m).
+
 ## Iter37: Far-tip seed reset after contact fail (2026-07-17)
 
 **Enumerated changes**
