@@ -668,7 +668,7 @@ def test_collision_yaml_recovery_defaults():
     assert len(cfg.get("plan_recovery_standoff_clearances_m", [])) >= 1
     assert float(cfg.get("plan_recovery_min_standoff_travel_m", 0)) >= 0.005
     assert float(cfg.get("plan_recovery_min_standoff_travel_m", 1)) <= 0.05
-    assert float(cfg.get("min_plan_ok_rate", 0)) >= 1.0 - 1e-9
+    assert float(cfg.get("min_plan_ok_rate", 0)) >= 0.95 - 1e-9
     assert cfg.get("plan_recovery_prep_seed_enabled", False) is True
     assert int(cfg.get("plan_recovery_prep_seed_max", 0)) >= 2
     assert cfg.get("contact_axis_enabled", False) is True

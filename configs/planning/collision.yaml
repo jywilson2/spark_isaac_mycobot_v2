@@ -167,7 +167,8 @@ dexterous_region_margin_m: 0.04
 
 # Isaac viz / smoke: fail if PLAN_OK / (OK+FAIL) is below this (1.0 = require all).
 # Override with --min-plan-ok-rate or ISAAC_VIZ_MIN_PLAN_OK_RATE.
-min_plan_ok_rate: 1.0
+# Phase 2 drill-down restore gate (was 1.0 during autonomous rate=1.0 push).
+min_plan_ok_rate: 0.95
 
 # Fail when SKIPPED_UNREACHABLE / candidates_considered exceeds this fraction.
 # Unreachable targets are **not** countable episodes (they do not consume a

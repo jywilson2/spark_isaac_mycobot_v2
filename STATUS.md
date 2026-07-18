@@ -1,6 +1,6 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-17** (failure drill-down — Phase 2 GUI attempt 2 RUNNING)
+Last updated: **2026-07-17** (failure drill-down — Phase 2 GUI **PASS** rate=0.979)
 
 ## Failure drill-down (2026-07-17 ~19:34+)
 
@@ -11,15 +11,20 @@ restore full GUI at ``min_plan_ok_rate ≥ 0.95`` on ``wip_phase3``.
 near-shell no_contact, tip-omit FK-start side_graze anchor.
 
 **Phase 2 attempt 1:** GUI viz=48 n_poses=200 rate≥0.95 → **FAIL**
-``ok=13 fail=3 rate=0.812`` — Ep5 ``arm_body_contact`` (honest), Ep8/Ep16
-``recovery_timeout`` (far-tip ``rejected_pre`` thrash). Early-abort=3 stopped
-fill at 16/48.
+``ok=13 fail=3 rate=0.812`` (arm_body + recovery_timeout; early-abort=3).
 
 **Phase 2a fix:** ``far_tip_seed_acceptable`` mild-worsen escape for stuck
 tip>0.15 m; far-tip ``max_seeds≤3``.
 
-**Phase 2 attempt 2 (RUNNING):** GUI viz=48 n_poses=240 rate≥0.95
-``--early-abort-after-fails 0`` log ``/tmp/gui_drill_phase2b.log``.
+**Phase 2 attempt 2: PASS** — GUI viz=48 n_poses=240 rate≥0.95
+``--early-abort-after-fails 0`` → ``ok=47 fail=1 rate=0.979``
+(episodes=48/48). Sole fail Ep29 ``recovery_timeout`` (tip stuck
+``tip_to_standoff≈0.16 m``, tip-omit correctly refused at 12 mm — honest).
+YAML ``min_plan_ok_rate`` restored to **0.95**. Log
+``/tmp/gui_drill_phase2b.log``.
+
+**Drill-down complete.** Frozen tip-face / tip-omit / mid-path latch gates
+unchanged.
 
 ## Autonomous long-GUI iteration (2026-07-17 ~13:20+)
 
