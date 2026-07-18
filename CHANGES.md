@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter35: Tip-omit from FK tip after approach (2026-07-17)
+
+**Enumerated changes**
+
+1. **After MotionGen/DLS approach** — rebuild tip-omit from FK tip (not planned
+   standoff). Iter34 Ep7: every cone tip-omit ``side_graze`` when tip0 stayed
+   planned while FK tip was offset.
+2. **Cap tip-omit cone tries** at 5 to preserve recovery timeout.
+
 ## Iter34: Soft pad after reseat + cheap tip-omit cone retries (2026-07-17)
 
 **Enumerated changes**

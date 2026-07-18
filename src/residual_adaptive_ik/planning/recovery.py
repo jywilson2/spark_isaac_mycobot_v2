@@ -1562,10 +1562,26 @@ def try_oriented_tip_face_contact(
             return None
         waypoints_approach = np.asarray(leg_ap.waypoints_rad, dtype=float)
         q_cur = _clamp_joints(waypoints_approach[-1])
-        # Gate the tip-omit length against the **planned** Cartesian standoff,
-        # not FK of the joint path (unit fakes / coarse interpolation may not
-        # land exactly on the standoff in tip space).
-        tip0 = np.asarray(approach.standoff_position_m, dtype=float).reshape(3)
+        tip0_planned = np.asarray(
+            approach.standoff_position_m, dtype=float
+        ).reshape(3)
+        # Real MotionGen/DLS often lands a few mm off the commanded standoff.
+        # Tip-omit must rebuild from the **FK tip** so the short nudge stays
+        # axial in tip space (iter34 Ep7: tip_omit_reject side_graze on every
+        # cone quat when tip0 stayed at the planned standoff).
+        if type(planner).__name__ == "CuRoboMotionPlanner":
+            tip0 = np.asarray(
+                forward_kinematics(q_cur, model=mdl).position_m, dtype=float
+            ).reshape(3)
+            track_err = float(np.linalg.norm(tip0 - tip0_planned))
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_from_fk_tip track_err_m={track_err:.4f}",
+            )
+        else:
+            # Unit FakePlanners: keep planned standoff (FK tip does not track).
+            tip0 = tip0_planned
     else:
         log.append("contact_approach:skipped_near_standoff")
         _decision(
@@ -1850,7 +1866,10 @@ def try_oriented_tip_face_contact(
         message="plan_failed:tip_omit_untried",
     )
     last_reject = "untried"
-    for qi, quat_try in enumerate(ordered_omit):
+    # Cap cone tip-omit tries — after a few tip-face rejects, prefer vias /
+    # reposition over burning the recovery budget (iter34 Ep7: 10× side_graze).
+    max_omit_tries = min(len(ordered_omit), 5)
+    for qi, quat_try in enumerate(ordered_omit[:max_omit_tries]):
         if not pad_ok_for_motiongen and qi > 0:
             break
         leg_try = plan_axial_tip_omit_lerp(
