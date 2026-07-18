@@ -2,6 +2,8 @@
 
 ## Iter35: Tip-omit from FK tip after approach (2026-07-17)
 
+**Result:** GUI viz=48 n_poses=80 **PASS** ok=24 fail=0 rate=1.000 but only 24/48 filled (Dexterous Region kept=30). Re-run with n_poses=200.
+
 **Enumerated changes**
 
 1. **After MotionGen/DLS approach** — rebuild tip-omit from FK tip (not planned
