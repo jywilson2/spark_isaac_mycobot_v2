@@ -454,6 +454,22 @@ def test_plan_via_standoff_respects_timeout_on_later_clearances():
     assert _AlwaysReject.pose_calls >= 1
 
 
+def test_far_tip_seed_acceptable_stuck_handoff_and_ep14_thrash():
+    """Stuck far tip may mild-worsen escape; +15 cm thrash still rejected."""
+    from residual_adaptive_ik.planning.recovery import far_tip_seed_acceptable
+
+    # Shrink ≥2 cm.
+    assert far_tip_seed_acceptable(0.14, 0.16, allow_invalid_start_escape=False)
+    # INVALID_START escape even if worse.
+    assert far_tip_seed_acceptable(0.31, 0.16, allow_invalid_start_escape=True)
+    # Stuck sequential handoff (>0.15 m): mild worsen ≤5 cm OK.
+    assert far_tip_seed_acceptable(0.20, 0.16, allow_invalid_start_escape=False)
+    # Ep14-style thrash 0.16→0.31 (+15 cm) rejected without INVALID_START.
+    assert not far_tip_seed_acceptable(0.31, 0.16, allow_invalid_start_escape=False)
+    # Not-stuck (<0.15 m fail distance): no mild-worsen path.
+    assert not far_tip_seed_acceptable(0.12, 0.11, allow_invalid_start_escape=False)
+
+
 def test_oriented_contact_respects_deadline():
     """Expired deadline aborts before burning the orientation cone."""
     from residual_adaptive_ik.planning.recovery import try_oriented_tip_face_contact

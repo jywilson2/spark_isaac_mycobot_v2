@@ -1,19 +1,25 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-17** (failure drill-down — Phase 1d side_graze done)
+Last updated: **2026-07-17** (failure drill-down — Phase 2 GUI attempt 2 RUNNING)
 
 ## Failure drill-down (2026-07-17 ~19:34+)
 
 **Goal:** fix handoff/far-tip desync, then drill PLAN_FAIL modes one at a time;
 restore full GUI at ``min_plan_ok_rate ≥ 0.95`` on ``wip_phase3``.
 
-**Phase 0–1c (done):** far-tip desync, timeout budget, near-tol wrong_side,
-near-shell no_contact restore.
-**Phase 1d (done):** Tip-omit path gate anchors at FK(wp[0]); rebuild approach
-after orientation reseat. Frozen tip-face / tip-omit / mid-path latch unchanged.
-Targeted pytest: **12 passed** (``test_dls_standoff_approach`` + tip-omit gates).
+**Phase 0–1d (done):** far-tip desync, timeout budget, near-tol wrong_side,
+near-shell no_contact, tip-omit FK-start side_graze anchor.
 
-**Next:** Phase 2 full GUI verification at ``min_plan_ok_rate ≥ 0.95``.
+**Phase 2 attempt 1:** GUI viz=48 n_poses=200 rate≥0.95 → **FAIL**
+``ok=13 fail=3 rate=0.812`` — Ep5 ``arm_body_contact`` (honest), Ep8/Ep16
+``recovery_timeout`` (far-tip ``rejected_pre`` thrash). Early-abort=3 stopped
+fill at 16/48.
+
+**Phase 2a fix:** ``far_tip_seed_acceptable`` mild-worsen escape for stuck
+tip>0.15 m; far-tip ``max_seeds≤3``.
+
+**Phase 2 attempt 2 (RUNNING):** GUI viz=48 n_poses=240 rate≥0.95
+``--early-abort-after-fails 0`` log ``/tmp/gui_drill_phase2b.log``.
 
 ## Autonomous long-GUI iteration (2026-07-17 ~13:20+)
 

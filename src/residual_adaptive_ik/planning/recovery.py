@@ -129,6 +129,35 @@ def _decision(
             pass
 
 
+def far_tip_seed_acceptable(
+    tip_to_standoff_seed_m: float,
+    tip_to_standoff_fail_m: float,
+    *,
+    allow_invalid_start_escape: bool,
+    mild_worsen_allow_m: float = 0.05,
+) -> bool:
+    """Pre-execute accept for far-tip preparatory seeds (meters).
+
+    Accept when:
+    - tip→standoff shrinks by ≥2 cm, or
+    - recent attempts include ``INVALID_START`` (branch escape), or
+    - tip is stuck far (``> 0.15 m``) and the seed does not worsen tip→standoff
+      by more than ``mild_worsen_allow_m`` (sequential handoff without
+      INVALID_START; still rejects Ep14-style +15 cm thrash).
+
+    Phase 0 desync fix + Phase 2 rate recovery. Pure / unit-testable.
+    """
+    seed_m = float(tip_to_standoff_seed_m)
+    fail_m = float(tip_to_standoff_fail_m)
+    if seed_m <= fail_m - 0.02:
+        return True
+    if allow_invalid_start_escape:
+        return True
+    if fail_m > 0.15:
+        return seed_m <= fail_m + float(mild_worsen_allow_m) + 1e-12
+    return False
+
+
 def tip_omit_length_allow_m(cfg: dict, *, nudge_max_m: float) -> float:
     """Hard Cartesian cap for any tip-omit segment (meters).
 
@@ -2289,9 +2318,8 @@ def plan_via_standoff(
             and prep_seed_enabled
             and len(failed_prep_seeds) < prep_seed_max
         ):
-            # Accept before execute: shrink tip→standoff by ≥2 cm, OR keep the
-            # INVALID_START branch-escape win even if geometry worsens briefly.
-            # Post-execute reject previously desynced planner q_cur from sim.
+            # Accept before execute (see far_tip_seed_acceptable). Post-execute
+            # reject previously desynced planner q_cur from sim.
             standoff_xyz = np.asarray(
                 approach_probe.standoff_position_m, dtype=float
             ).reshape(3)
@@ -2306,9 +2334,11 @@ def plan_via_standoff(
                 tip_to_standoff_seed = float(
                     np.linalg.norm(tip_seed - standoff_xyz)
                 )
-                if tip_to_standoff_seed <= tip_to_standoff_fail - 0.02:
-                    return True
-                return allow_invalid_start_escape
+                return far_tip_seed_acceptable(
+                    tip_to_standoff_seed,
+                    tip_to_standoff_fail,
+                    allow_invalid_start_escape=allow_invalid_start_escape,
+                )
 
             q_new, tag, failed_prep_seeds = try_move_to_preparatory_seed(
                 q_cur,
@@ -2318,7 +2348,9 @@ def plan_via_standoff(
                 failed_seeds=failed_prep_seeds,
                 execute_waypoints=execute_waypoints,
                 allow_planned=True,
-                max_seeds=1,
+                # Try a few bank members — first may be rejected_pre; home /
+                # mid-home often unlock sequential handoffs (Phase 2 Ep8).
+                max_seeds=min(3, max(1, prep_seed_max - len(failed_prep_seeds))),
                 dt_s=last_dt,
                 accept_seed=_accept_far_tip_seed,
             )
