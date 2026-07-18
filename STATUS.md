@@ -1,18 +1,19 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-17** (failure drill-down — Phase 1c no_contact done)
+Last updated: **2026-07-17** (failure drill-down — Phase 1d side_graze done)
 
 ## Failure drill-down (2026-07-17 ~19:34+)
 
 **Goal:** fix handoff/far-tip desync, then drill PLAN_FAIL modes one at a time;
 restore full GUI at ``min_plan_ok_rate ≥ 0.95`` on ``wip_phase3``.
 
-**Phase 0–1b (done):** far-tip desync, timeout budget, near-tol wrong_side.
-**Phase 1c (done):** Settle near-shell ``no_contact`` (dist ≤ shell+3 mm)
-restores ``q_at_contact``; far drift stays honest. Frozen outer_tol unchanged.
-Targeted pytest: **16 passed** (``test_viz_plan_fail_closed``).
+**Phase 0–1c (done):** far-tip desync, timeout budget, near-tol wrong_side,
+near-shell no_contact restore.
+**Phase 1d (done):** Tip-omit path gate anchors at FK(wp[0]); rebuild approach
+after orientation reseat. Frozen tip-face / tip-omit / mid-path latch unchanged.
+Targeted pytest: **12 passed** (``test_dls_standoff_approach`` + tip-omit gates).
 
-**Next:** Phase 1d side_graze drill-down.
+**Next:** Phase 2 full GUI verification at ``min_plan_ok_rate ≥ 0.95``.
 
 ## Autonomous long-GUI iteration (2026-07-17 ~13:20+)
 

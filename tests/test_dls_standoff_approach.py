@@ -2,6 +2,8 @@
 """Unit tests for DLS standoff approach fallback (no CUDA)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from residual_adaptive_ik.kinematics.fk import forward_kinematics
@@ -156,3 +158,58 @@ def test_tip_path_allows_small_near_field_lateral():
         densify_n=8,
     )
     assert ok, reason
+
+
+def test_tip_path_fk_start_anchor_avoids_false_side_graze():
+    """Stale planned-standoff anchor false-rejects; FK-start anchor matches runtime.
+
+    Phase 1d: tip-omit segment must classify against the FK tip of wp[0], not a
+    constructed standoff that may be offset after reseat tracking error.
+    """
+    from residual_adaptive_ik.planning.recovery import tip_path_tip_face_ok
+
+    mdl = get_default_model()
+    q = np.zeros(6)
+    tip = np.asarray(forward_kinematics(q, model=mdl).position_m, dtype=float)
+    # Honest axial tip→center near-field sample (lateral ≈ 0 on tip→center ray).
+    center = tip + np.array([0.018, 0.0, 0.0])
+    # Stale planned standoff ~8 mm lateral — simulates post-reseat FK track err.
+    stale_standoff = tip + np.array([0.008, 0.008, 0.0])
+    cfg = {"contact_standoff_m": 0.008, "contact_axis_tolerance_rad": 0.26}
+    ok_stale, reason_stale = tip_path_tip_face_ok(
+        np.vstack([q, q]),
+        sphere_center_m=center,
+        sphere_radius_m=0.012,
+        approach_from_m=stale_standoff,
+        model=mdl,
+        cfg=cfg,
+        densify_n=8,
+    )
+    assert not ok_stale and reason_stale == "side_graze"
+    ok_fk, reason_fk = tip_path_tip_face_ok(
+        np.vstack([q, q]),
+        sphere_center_m=center,
+        sphere_radius_m=0.012,
+        approach_from_m=tip,  # FK start tip — runtime-equivalent
+        model=mdl,
+        cfg=cfg,
+        densify_n=8,
+    )
+    assert ok_fk, reason_fk
+
+
+def test_tip_omit_segment_ok_anchors_at_fk_start():
+    """Source contract: tip-omit path gate uses FK(wp[0]), not planned standoff."""
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "residual_adaptive_ik"
+        / "planning"
+        / "recovery.py"
+    ).read_text(encoding="utf-8")
+    idx = src.index("def _tip_omit_segment_ok")
+    end = src.index("leg_nudge = PlannedTrajectory", idx)
+    body = src[idx:end]
+    assert "tip_start_fk" in body
+    assert "approach_from_m=tip_start_fk" in body
+    assert "approach.standoff_position_m" not in body

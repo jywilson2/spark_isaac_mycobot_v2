@@ -1762,7 +1762,23 @@ def try_oriented_tip_face_contact(
                 else _concat_waypoints(waypoints_approach, wp_ori)
             )
             q_cur = _clamp_joints(wp_ori[-1])
-            tip0 = np.asarray(approach.standoff_position_m, dtype=float).reshape(3)
+            # Rebuild tip/approach from FK after reseat (same as Iter35
+            # MotGen→tip-omit handoff). Do not pretend tip0 is the planned
+            # standoff — that desyncs the tip-omit lateral corridor and
+            # false-rejects every cone quat as side_graze (Phase 1d).
+            tip0 = np.asarray(
+                forward_kinematics(q_cur, model=mdl).position_m, dtype=float
+            ).reshape(3)
+            approach = build_sphere_contact_approach(
+                tip0,
+                sphere_center_m,
+                sphere_radius_m,
+                standoff_m=standoff_m,
+                nudge_m=nudge_m,
+                current_quaternion_wxyz=forward_kinematics(
+                    q_cur, model=mdl
+                ).quaternion_wxyz,
+            )
             last_dt = float(leg_ori.dt_s)
             aligned2, axis_err2, axis_tol2 = fk_pad_aligned_for_tip_omit(
                 q_cur,
@@ -1855,19 +1871,27 @@ def try_oriented_tip_face_contact(
     def _tip_omit_segment_ok(
         leg: PlannedTrajectory,
     ) -> tuple[bool, str]:
-        """Tip-face path + end classify for a tip-omit joint segment."""
+        """Tip-face path + end classify for a tip-omit joint segment.
+
+        Anchor the lateral corridor at the FK tip of the first waypoint —
+        matching runtime ``_execute_waypoints`` — not the constructed
+        standoff. Post-reseat FK can sit several mm off the planned standoff
+        while still being an honest axial nudge; a stale standoff anchor
+        false-rejects those as ``side_graze`` (Phase 1d).
+        """
         if type(planner).__name__ != "CuRoboMotionPlanner":
             return True, "ok"
         wp_chk = np.asarray(leg.waypoints_rad, dtype=float)
         if wp_chk.ndim != 2 or wp_chk.shape[0] == 0:
             return False, "empty_path"
+        tip_start_fk = np.asarray(
+            forward_kinematics(wp_chk[0], model=mdl).position_m, dtype=float
+        ).reshape(3)
         tf_ok, tf_reason = tip_path_tip_face_ok(
             wp_chk,
             sphere_center_m=sphere_center_m,
             sphere_radius_m=sphere_radius_m,
-            approach_from_m=np.asarray(
-                approach.standoff_position_m, dtype=float
-            ).reshape(3),
+            approach_from_m=tip_start_fk,
             model=mdl,
             cfg=cfg,
             stride=max(1, wp_chk.shape[0] // 8),
@@ -1887,13 +1911,10 @@ def try_oriented_tip_face_contact(
         q_end = np.asarray(wp_chk[-1], dtype=float).reshape(6)
         pose_end = forward_kinematics(q_end, model=mdl)
         tip_end_fk = np.asarray(pose_end.position_m, dtype=float).reshape(3)
-        standoff_from = np.asarray(
-            approach.standoff_position_m, dtype=float
-        ).reshape(3)
         fok_e, freason_e, _fm_e = _ctc_end(
             tip_end_fk,
             sphere_center_m,
-            approach_from_m=standoff_from,
+            approach_from_m=tip_start_fk,
             ee_quaternion_wxyz=pose_end.quaternion_wxyz,
         )
         if not fok_e:

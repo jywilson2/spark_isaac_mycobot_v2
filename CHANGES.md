@@ -1,5 +1,19 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Drill Phase 1d: Tip-omit side_graze FK-start anchor (2026-07-17)
+
+**Enumerated changes**
+
+1. **`_tip_omit_segment_ok`** — lateral corridor / end classify anchored at
+   FK tip of ``wp[0]`` (runtime-equivalent), not constructed standoff.
+2. **Orientation reseat** — rebuild ``tip0`` + ``approach`` from FK after
+   spheres-ON reseat (same Iter35 pattern) so tip-omit does not inherit a
+   stale planned standoff.
+3. **Tests** — false side_graze from stale standoff vs FK-start; source
+   contract on ``tip_start_fk``.
+4. **Not changed** — frozen tip-face lateral 4 mm, tip-omit 12 mm, mid-path
+   ``side_graze`` latch.
+
 ## Drill Phase 1c: Near-shell settle no_contact restore (2026-07-17)
 
 **Enumerated changes**
