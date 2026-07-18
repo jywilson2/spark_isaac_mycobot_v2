@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter28: Always classify settle pose (even without mid-path green) (2026-07-17)
+
+**Enumerated changes**
+
+1. **`run_ik_viz.py`** — settle tip-face classify runs whenever joints are
+   available; can green from settle alone (iter27 Ep6: tip frozen at 11.9 mm
+   with ``contacted=False`` skipped classify → false ``no_contact``).
+
 ## Iter27: Freeze in-shell tip when CONTACT_HOLD IK fails without green (2026-07-17)
 
 **Enumerated changes**

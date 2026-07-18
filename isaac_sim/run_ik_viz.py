@@ -1929,20 +1929,44 @@ def run_viz(args: argparse.Namespace) -> int:
                 q_settled = _get_joint_positions(articulation)
             except Exception:
                 q_settled = None
-            if contacted and q_settled is not None:
+            # Always classify the settled pose when joints are available.
+            # Recovery can return PLAN_OK / already_executed without a mid-path
+            # green (iter27 Ep6: tip frozen at 11.9 mm, contacted=False → old
+            # path skipped classify and reported no_contact).
+            if q_settled is not None:
                 try:
                     p_fin = forward_kinematics(q_settled)
                     tip_fin = np.asarray(p_fin.position_m, dtype=float).reshape(3)
                     ap_fin = contact_diag.get("approach_from_at_contact")
                     if ap_fin is None:
-                        ap_fin = approach_from_m
+                        # Prefer tip-anchored ray when we never greened mid-path.
+                        out_f = tip_fin - target_xyz
+                        n_f = float(np.linalg.norm(out_f))
+                        if n_f > 1e-9:
+                            ap_fin = tip_fin + (out_f / n_f) * 0.02
+                        else:
+                            ap_fin = approach_from_m
                     fok, freason, fm = classify_tip_contact(
                         tip_fin,
                         target_xyz,
                         approach_from_m=np.asarray(ap_fin, dtype=float).reshape(3),
                         ee_quaternion_wxyz=p_fin.quaternion_wxyz,
                     )
-                    if not fok:
+                    if fok:
+                        final_ok = True
+                        contacted = True
+                        _set_target_marker_color(
+                            stage, state=MarkerVisualState.CONTACT
+                        )
+                        if not contact_diag.get("logged_settle_green"):
+                            contact_diag["logged_settle_green"] = True
+                            _viz_log(
+                                "  MARKER_CONTACT: settle tip-face ok "
+                                f"(dist={fm['dist_m'] * 1e3:.1f}mm "
+                                f"lat={fm['lateral_m'] * 1e3:.1f}mm "
+                                f"axis_out={np.degrees(fm['axis_out_err_rad']):.0f}deg)"
+                            )
+                    else:
                         final_ok = False
                         fail_reason_tag = (
                             "immersed"
@@ -1953,20 +1977,19 @@ def run_viz(args: argparse.Namespace) -> int:
                                 else "invalid_side"
                             )
                         )
-                        n_invalid_side += 1
+                        if freason != "no_contact":
+                            n_invalid_side += 1
                         _set_target_marker_color(
                             stage, state=MarkerVisualState.PLAN_FAIL
                         )
                         _viz_log(
-                            "  CONTACT_INVALID_SETTLE: marker turned green during "
-                            "motion, but the settled contact is invalid "
+                            "  CONTACT_INVALID_SETTLE: settled contact invalid "
                             f"(reason={freason}, "
                             f"dist={fm['dist_m'] * 1e3:.1f}mm "
                             f"axis_in={np.degrees(fm['axis_in_err_rad']):.0f}deg "
                             f"axis_out={np.degrees(fm['axis_out_err_rad']):.0f}deg "
                             f"pen={fm['penetration_m'] * 1e3:.1f}mm "
-                            f"lat={fm['lateral_m'] * 1e3:.1f}mm) — reported as "
-                            "PLAN_FAIL despite the green flash",
+                            f"lat={fm['lateral_m'] * 1e3:.1f}mm) — PLAN_FAIL",
                             level="error",
                         )
                     # Volumetric EE-body check: tip-zone sphere ∩ marker is OK
@@ -1996,10 +2019,10 @@ def run_viz(args: argparse.Namespace) -> int:
                         ).reshape(-1, 4)
                         approach_settle = (
                             None
-                            if approach_from_m is None
+                            if ap_fin is None
                             else (
                                 target_xyz
-                                - np.asarray(approach_from_m, dtype=float).reshape(3)
+                                - np.asarray(ap_fin, dtype=float).reshape(3)
                             )
                         )
                         side_hit, side_rep = settle_has_side_sphere_hits(

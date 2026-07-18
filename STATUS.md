@@ -141,7 +141,8 @@ contact streak remains iter25 **11/12** with skip_frac=0.
 — Ep6 still `no_contact` (freeze path may not have triggered). Best streak:
 iter25 **11/12** + skip_frac=0; iter24 contact **11/11 rate=1.0**.
 
-| 27 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 no_contact | continue |
+| 27 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 no_contact | always settle classify |
+| 28 | headless (pending) | — | then long GUI viz=48 |
 
 
 
