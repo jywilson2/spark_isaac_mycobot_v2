@@ -143,7 +143,8 @@ iter25 **11/12** + skip_frac=0; iter24 contact **11/11 rate=1.0**.
 
 | 27 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 no_contact | always settle classify |
 | 28 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 recovery_timeout (axial/curobo tip-omit IK) | tip-face patch tip-omit |
-| 29 | headless viz=16 n_poses=80 | **PENDING** tip-face patch | then long GUI viz=48 |
+| 29 | headless viz=16 n_poses=80 | **PASS** ok=16 fail=0 rate=1.000 skip_frac=0 | long GUI viz=48 |
+| 30 | GUI viz=48 n_poses=80 | **PENDING** | await rate=1.0 early-abort=1 |
 
 
 

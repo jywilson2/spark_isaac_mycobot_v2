@@ -2,6 +2,8 @@
 
 ## Iter29: Tip-face patch axial tip-omit when exact pierce IK-fails (2026-07-17)
 
+**Result:** headless viz=16 **PASS** ok=16 fail=0 rate=1.000 skip_frac=0 (`/tmp/headless_iter29.log`). Next: long GUI viz=48.
+
 **Enumerated changes**
 
 1. **`recovery.py` `plan_axial_tip_omit_lerp`** — after exact pierce DLS fails,
