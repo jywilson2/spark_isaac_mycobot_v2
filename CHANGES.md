@@ -1,5 +1,14 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter34: Soft pad after reseat + cheap tip-omit cone retries (2026-07-17)
+
+**Enumerated changes**
+
+1. **Reseat tip-omit margin** +0.01→+0.03 rad (Ep24: axis_err=0.285>0.260).
+2. **Soft pad** — if still over, allow axial tip-omit up to +0.08 rad.
+3. **cuRobo tip-omit** only for primary quat; cone retries are axial+patch only
+   (Ep24 burned ~40s on 4× cuRobo tip-omit side_graze rejects).
+
 ## Iter33: Tip-omit cone retry after tip-face path reject + EE-close reposition (2026-07-17)
 
 **Enumerated changes**

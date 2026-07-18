@@ -1713,15 +1713,16 @@ def try_oriented_tip_face_contact(
                 cfg=cfg,
             )
             # FK after MotionGen reseat often sits just over tol (iter21 Ep6:
-            # prints as 0.260>0.260). Allow +0.01 rad (~0.6°) for tip-omit
-            # eligibility only — settle tip-face classify stays at TOOL_AXIS_TOL.
-            if (not aligned2) and axis_err2 <= axis_tol2 + 0.01:
+            # prints as 0.260>0.260; iter33 Ep24: 0.285>0.260). Allow +0.03 rad
+            # (~1.7°) for tip-omit eligibility only — settle tip-face classify
+            # stays at TOOL_AXIS_TOL.
+            if (not aligned2) and axis_err2 <= axis_tol2 + 0.03:
                 aligned2 = True
                 _decision(
                     decision_emit,
                     log,
                     f"tip_omit_reseat_near_tol axis_err_rad={axis_err2:.3f} "
-                    f"tol_rad={axis_tol2:.3f} (+0.01 rad tip-omit margin)",
+                    f"tol_rad={axis_tol2:.3f} (+0.03 rad tip-omit margin)",
                 )
             pad_ok_for_motiongen = bool(aligned2)
             axis_err, axis_tol = axis_err2, axis_tol2
@@ -1735,18 +1736,29 @@ def try_oriented_tip_face_contact(
                 chosen_quat = np.asarray(reseat_quat, dtype=float).reshape(4)
                 quat = chosen_quat
             else:
-                # Refuse tip-omit when reseat cannot pad-align (iter18 Ep3).
-                log.append(
-                    f"contact_nudge_refused:pad_misaligned_after_reseat:"
-                    f"axis_err={axis_err2:.3f}>tol={axis_tol2:.3f}"
-                )
-                _decision(
-                    decision_emit,
-                    log,
-                    f"tip_omit_refused_after_reseat "
-                    f"axis_err_rad={axis_err2:.3f}>tol_rad={axis_tol2:.3f}",
-                )
-                return None
+                # Soft continue: still try axial tip-omit + cone (pad may refine
+                # during the short nudge). Hard refuse only when far over tol.
+                if axis_err2 <= axis_tol2 + 0.08:
+                    pad_ok_for_motiongen = True
+                    _decision(
+                        decision_emit,
+                        log,
+                        f"tip_omit_soft_pad_after_reseat "
+                        f"axis_err_rad={axis_err2:.3f}>tol_rad={axis_tol2:.3f} "
+                        "(allow axial tip-omit attempts)",
+                    )
+                else:
+                    log.append(
+                        f"contact_nudge_refused:pad_misaligned_after_reseat:"
+                        f"axis_err={axis_err2:.3f}>tol={axis_tol2:.3f}"
+                    )
+                    _decision(
+                        decision_emit,
+                        log,
+                        f"tip_omit_refused_after_reseat "
+                        f"axis_err_rad={axis_err2:.3f}>tol_rad={axis_tol2:.3f}",
+                    )
+                    return None
 
     if not pad_ok_for_motiongen and tip_track_err_m <= tip_track_tol_m:
         # Hard refuse when FK tracks standoff but pad still misaligned and we
@@ -1851,7 +1863,10 @@ def try_oriented_tip_face_contact(
             sphere_radius_m=sphere_radius_m,
             patch_lateral_max_m=patch_lat,
         )
-        if not leg_try.ok and pad_ok_for_motiongen:
+        # cuRobo tip-omit is expensive (~8s/try). Use it only for the primary
+        # quat; cone retries stay axial+patch so recovery timeout is not burned
+        # (iter33 Ep24: tip_omit_reject q0/q4/q8/q10 each ~8s → timeout).
+        if not leg_try.ok and pad_ok_for_motiongen and qi == 0:
             leg_try = contact_planner.plan_to_pose(
                 q_cur,
                 approach.pierce_position_m,
