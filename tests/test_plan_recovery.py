@@ -454,6 +454,110 @@ def test_plan_via_standoff_respects_timeout_on_later_clearances():
     assert _AlwaysReject.pose_calls >= 1
 
 
+def test_oriented_contact_respects_deadline():
+    """Expired deadline aborts before burning the orientation cone."""
+    from residual_adaptive_ik.planning.recovery import try_oriented_tip_face_contact
+
+    class _CountingReject:
+        _interpolation_dt_s = 0.02
+        _omit_tip_links = False
+
+        def __init__(self):
+            self.pose_calls = 0
+
+        def plan_to_pose(self, *args, **kwargs):
+            self.pose_calls += 1
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:IK_FAIL",
+            )
+
+        def plan_to_joint_goal(self, *args, **kwargs):
+            return self.plan_to_pose()
+
+    planner = _CountingReject()
+    contact = _CountingReject()
+    contact._omit_tip_links = True
+    log: list[str] = []
+    # Tip far from a typical marker so the approach cone would run.
+    q0 = np.zeros(6)
+    out = try_oriented_tip_face_contact(
+        q0,
+        sphere_center_m=np.array([0.20, 0.0, 0.20]),
+        sphere_radius_m=0.012,
+        planner=planner,  # type: ignore[arg-type]
+        contact_planner=contact,  # type: ignore[arg-type]
+        obstacles=[
+            SphereObstacle(
+                center_m=np.array([0.20, 0.0, 0.20]),
+                radius_m=0.012,
+                name="ik_target",
+            )
+        ],
+        max_attempts=6,
+        attempts_log=log,
+        deadline_monotonic=time.monotonic() - 1.0,
+    )
+    assert out is None
+    assert planner.pose_calls == 0, (
+        f"expired deadline must not call plan_to_pose; got {planner.pose_calls}"
+    )
+    assert any("contact_deadline_hit" in s for s in log)
+
+
+def test_plan_via_standoff_cheapens_repeat_contact_cycles():
+    """Second identical-q contact cycle must not replay a full cone budget."""
+
+    class _AlwaysReject:
+        _interpolation_dt_s = 0.02
+        pose_calls = 0
+        max_attempts_seen: list[int] = []
+
+        def plan_to_joint_goal(self, *args, **kwargs):
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:IK_FAIL",
+            )
+
+        def plan_to_pose(self, *args, **kwargs):
+            type(self).pose_calls += 1
+            type(self).max_attempts_seen.append(int(kwargs.get("max_attempts", 1)))
+            return PlannedTrajectory(
+                waypoints_rad=np.zeros((0, 6)),
+                dt_s=0.02,
+                success=False,
+                backend="curobo",
+                message="plan_failed:IK_FAIL",
+            )
+
+    _AlwaysReject.pose_calls = 0
+    _AlwaysReject.max_attempts_seen = []
+    q0 = np.zeros(6)
+    q1 = np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
+    marker = SphereObstacle(center_m=np.array([0.15, 0.0, 0.15]), radius_m=0.012)
+    traj = plan_via_standoff(
+        q0,
+        q1,
+        planner=_AlwaysReject(),  # type: ignore[arg-type]
+        obstacles=[marker],
+        standoff_clearances_m=[0.05, 0.08],
+        timeout_s=0.35,
+    )
+    assert not traj.ok
+    assert "recovery_timeout" in traj.message
+    # Stuck-repeat path logs cheap contact; keep frozen PLAN_FAIL mode.
+    assert "recovery_contact_cheap_stuck_repeat" in traj.message or (
+        1 in _AlwaysReject.max_attempts_seen
+        and any(a > 1 for a in _AlwaysReject.max_attempts_seen)
+    )
+
+
 def test_plan_via_standoff_executes_partial_via1():
     """via1 OK / via2 FAIL with execute_waypoints moves EE and retries."""
 

@@ -1056,6 +1056,7 @@ def try_oriented_tip_face_contact(
     strategy_tag: str = "direct_contact",
     attempts_log: list[str] | None = None,
     decision_emit: DecisionEmitFn | None = None,
+    deadline_monotonic: float | None = None,
 ) -> PlannedTrajectory | None:
     """Spheres-on approach to oriented standoff, then tip-omit axial nudge.
 
@@ -1069,11 +1070,21 @@ def try_oriented_tip_face_contact(
     reseat with spheres ON or refuse. Long tip-omit fallbacks (e.g. ≤60 mm)
     are intentionally not used — they let the EE barrel hit the marker from
     the side/back.
+
+    When ``deadline_monotonic`` is set, abort between orientation / tip-omit
+    candidates with ``contact_deadline_hit`` so a single contact attempt cannot
+    burn the full recovery timeout (Phase 1a timeout drill-down).
     """
     mdl = model or get_default_model()
     cfg = load_planning_config()
     if not bool(cfg.get("contact_axis_enabled", True)):
         return None
+
+    def _deadline_hit() -> bool:
+        return (
+            deadline_monotonic is not None
+            and time.monotonic() >= float(deadline_monotonic)
+        )
     standoff_m = float(cfg.get("contact_standoff_m", 0.008))
     nudge_m = float(cfg.get("contact_nudge_m", standoff_m))
     nudge_max = float(cfg.get("contact_nudge_max_m", max(0.012, standoff_m)))
@@ -1157,6 +1168,14 @@ def try_oriented_tip_face_contact(
         )
         leg_ap = None
         for qi, quat_try in enumerate(quat_candidates):
+            if _deadline_hit():
+                log.append("contact_deadline_hit:approach_cone")
+                _decision(
+                    decision_emit,
+                    log,
+                    f"contact_deadline_hit approach_cone q{qi}",
+                )
+                return None
             leg_ap = planner.plan_to_pose(
                 q_cur,
                 approach.standoff_position_m,
@@ -1305,6 +1324,14 @@ def try_oriented_tip_face_contact(
                     "approach_motiongen_failed → dls_standoff_approach",
                 )
                 for qi, quat_try in enumerate(quat_candidates):
+                    if _deadline_hit():
+                        log.append("contact_deadline_hit:dls_approach")
+                        _decision(
+                            decision_emit,
+                            log,
+                            f"contact_deadline_hit dls_approach q{qi}",
+                        )
+                        return None
                     leg_ap = plan_dls_standoff_approach_lerp(
                         q_cur,
                         approach.standoff_position_m,
@@ -1885,6 +1912,14 @@ def try_oriented_tip_face_contact(
     # reposition over burning the recovery budget (iter34 Ep7: 10× side_graze).
     max_omit_tries = min(len(ordered_omit), 5)
     for qi, quat_try in enumerate(ordered_omit[:max_omit_tries]):
+        if _deadline_hit():
+            log.append("contact_deadline_hit:tip_omit")
+            _decision(
+                decision_emit,
+                log,
+                f"contact_deadline_hit tip_omit q{qi}",
+            )
+            return None
         if not pad_ok_for_motiongen and qi > 0:
             break
         leg_try = plan_axial_tip_omit_lerp(
@@ -2106,6 +2141,9 @@ def plan_via_standoff(
         cfg.get("plan_recovery_reposition_close_shell_m", 0.06)
     )
     reposition_used = 0
+    # Stuck-cycle guard: identical q_cur contact retries burn timeout budget
+    # after prep-seed / reposition are exhausted (Phase 1a).
+    q_last_contact_fail: np.ndarray | None = None
 
     if marker is None:
         direct = contact.plan_to_joint_goal(
@@ -2142,6 +2180,21 @@ def plan_via_standoff(
         )
 
         # Preferred path: spheres-on approach + short tip-omit axial nudge.
+        contact_max_attempts = max(1, direct_attempts)
+        stuck_repeat = (
+            q_last_contact_fail is not None
+            and np.allclose(q_cur, q_last_contact_fail, atol=1e-6)
+        )
+        if stuck_repeat:
+            # Cheapen identical retries so vias get wall-clock (not another
+            # full orientation cone × cuRobo max_attempts). Full strength
+            # already failed from this q; seed/reposition/vias must progress.
+            contact_max_attempts = 1
+            _decision(
+                decision_emit,
+                attempts_log,
+                "recovery_contact_cheap_stuck_repeat max_attempts=1",
+            )
         _decision(
             decision_emit,
             attempts_log,
@@ -2157,11 +2210,12 @@ def plan_via_standoff(
             contact_planner=contact,
             obstacles=obs,
             model=mdl,
-            max_attempts=max(1, direct_attempts),
+            max_attempts=contact_max_attempts,
             execute_waypoints=execute_waypoints,
             strategy_tag="direct_contact",
             attempts_log=attempts_log,
             decision_emit=decision_emit,
+            deadline_monotonic=deadline,
         )
         if oriented is not None and oriented.ok:
             _decision(
@@ -2180,6 +2234,7 @@ def plan_via_standoff(
                 message=msg,
                 backend=oriented.backend,
             )
+        q_last_contact_fail = np.asarray(q_cur, dtype=float).reshape(6).copy()
         _decision(
             decision_emit,
             attempts_log,
@@ -2474,6 +2529,7 @@ def plan_via_standoff(
                 strategy_tag="via_contact",
                 attempts_log=attempts_log,
                 decision_emit=decision_emit,
+                deadline_monotonic=deadline,
             )
             if oriented is not None and oriented.ok:
                 if execute_waypoints is None:

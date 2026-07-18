@@ -1,6 +1,6 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-17** (failure drill-down — Phase 0 far-tip done)
+Last updated: **2026-07-17** (failure drill-down — Phase 1a timeout done)
 
 ## Failure drill-down (2026-07-17 ~19:34+)
 
@@ -9,12 +9,14 @@ restore full GUI at ``min_plan_ok_rate ≥ 0.95`` on ``wip_phase3``.
 
 **Phase 0 (done):** Pre-execute ``accept_seed`` on preparatory seeds; far-tip
 accept = tip_to_standoff shrink ≥2 cm **or** recent ``INVALID_START``. Deleted
-post-execute reject that desynced planner ``q_cur`` from sim. Targeted pytest
-``test_plan_recovery`` / tip-omit / fail-closed: **37 passed**. Tip-omit /
+post-execute reject that desynced planner ``q_cur`` from sim. Tip-omit /
 tip-face gates **not** widened.
 
-**Next:** Phase 1a recovery-timeout drill-down (budget burn / tip-omit cone /
-approach stuck loops).
+**Phase 1a (done):** Thread recovery ``deadline_monotonic`` into oriented
+contact (abort between cone/DLS/tip-omit candidates); cheapen stuck identical
+``q_cur`` contact retries to ``max_attempts=1``. Targeted pytest: **39 passed**.
+
+**Next:** Phase 1b invalid_side / wrong-axis drill-down.
 
 ## Autonomous long-GUI iteration (2026-07-17 ~13:20+)
 

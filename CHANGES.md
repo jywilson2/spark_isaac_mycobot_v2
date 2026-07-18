@@ -1,5 +1,20 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Drill Phase 1a: Recovery timeout budget burn (2026-07-17)
+
+**Enumerated changes**
+
+1. **`try_oriented_tip_face_contact`** — optional ``deadline_monotonic``; abort
+   between approach-cone / DLS / tip-omit candidates with ``contact_deadline_hit``
+   so one contact call cannot monopolize the 90 s recovery budget.
+2. **`plan_via_standoff`** — pass recovery deadline into both contact call sites;
+   on identical ``q_cur`` retry after a contact fail, cheapen to
+   ``max_attempts=1`` (``recovery_contact_cheap_stuck_repeat``) so vias get
+   wall-clock.
+3. **Tests** — ``test_oriented_contact_respects_deadline``,
+   ``test_plan_via_standoff_cheapens_repeat_contact_cycles``.
+4. **Not changed** — tip-omit 12 mm cap, tip-face tols, frozen PLAN_FAIL modes.
+
 ## Drill Phase 0: Pre-execute far-tip seed accept (handoff desync fix) (2026-07-17)
 
 **Enumerated changes**
