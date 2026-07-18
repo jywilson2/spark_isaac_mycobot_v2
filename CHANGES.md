@@ -1,5 +1,13 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter37: Far-tip seed reset after contact fail (2026-07-17)
+
+**Enumerated changes**
+
+1. **`plan_via_standoff`** — when oriented contact fails with
+   ``tip_to_standoff > 0.10 m``, try one preparatory seed-bank move before
+   vias (iter36 Ep3: tip stuck at z≈0.31 while target z≈0.16).
+
 ## Iter35: Tip-omit from FK tip after approach (2026-07-17)
 
 **Result:** GUI viz=48 n_poses=80 **PASS** ok=24 fail=0 rate=1.000 but only 24/48 filled (Dexterous Region kept=30). Re-run with n_poses=200.

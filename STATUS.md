@@ -150,7 +150,8 @@ iter25 **11/12** + skip_frac=0; iter24 contact **11/11 rate=1.0**.
 | 33 | GUI viz=48 n_poses=80 | **FAIL** 23/24 Ep24 timeout (pad 0.285 + cuRobo tip-omit burn) | soft pad + cheap cone |
 | 34 | GUI viz=48 n_poses=80 | **FAIL** 6/7 Ep7 tip_omit side_graze×10 | tip-omit from FK tip |
 | 35 | GUI viz=48 n_poses=80 | **PASS** ok=24 fail=0 rate=1.000 but only 24/48 (dex kept=30) | re-run n_poses=200 |
-| 36 | GUI viz=48 n_poses=200 | **RUNNING** `/tmp/gui_iter36.log` | await rate=1.0 |
+| 36 | GUI viz=48 n_poses=200 | **FAIL** 2/3 Ep3 tip stuck high (tip_to_standoff≈0.16) | far-tip seed reset |
+| 37 | GUI viz=48 n_poses=200 | **PENDING** | await rate=1.0 |
 
 
 

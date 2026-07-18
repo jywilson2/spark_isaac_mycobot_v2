@@ -2171,6 +2171,62 @@ def plan_via_standoff(
             "recovery_contact_failed → via_standoffs",
         )
 
+        # Far tip after contact fail: seed-bank reset before burning vias from a
+        # bad posture (iter36 Ep3: tip_z≈0.31 vs target_z≈0.16, tip_to_standoff
+        # stuck ≈0.16 m while every approach IK_FAIL / tip_omit_refused).
+        standoff_m_cfg = float(cfg.get("contact_standoff_m", 0.008))
+        approach_probe = build_sphere_contact_approach(
+            tip_start,
+            center,
+            radius,
+            standoff_m=standoff_m_cfg,
+            nudge_m=standoff_m_cfg,
+            current_quaternion_wxyz=forward_kinematics(
+                q_cur, model=mdl
+            ).quaternion_wxyz,
+        )
+        tip_to_standoff_fail = float(
+            np.linalg.norm(
+                tip_start
+                - np.asarray(
+                    approach_probe.standoff_position_m, dtype=float
+                ).reshape(3)
+            )
+        )
+        if (
+            tip_to_standoff_fail > 0.10
+            and prep_seed_enabled
+            and len(failed_prep_seeds) < prep_seed_max
+        ):
+            q_new, tag, failed_prep_seeds = try_move_to_preparatory_seed(
+                q_cur,
+                planner=planner,
+                model=mdl,
+                obstacles=obs,
+                failed_seeds=failed_prep_seeds,
+                execute_waypoints=execute_waypoints,
+                allow_planned=True,
+                max_seeds=1,
+                dt_s=last_dt,
+            )
+            attempts_log.append(
+                f"far_tip_seed_reset_{tag}|tip_to_standoff_m="
+                f"{tip_to_standoff_fail:.3f}"
+            )
+            _decision(
+                decision_emit,
+                attempts_log,
+                f"far_tip_seed_reset tip_to_standoff_m={tip_to_standoff_fail:.3f} "
+                f"tag={tag}",
+            )
+            if q_new is not None:
+                q_cur = q_new
+                tip_start = forward_kinematics(q_cur, model=mdl).position_m
+                if execute_waypoints is not None:
+                    partial_execs += 1
+                time.sleep(0.02)
+                continue
+
         # Legacy tip-omit full path only when oriented contact is disabled.
         if not bool(cfg.get("contact_axis_enabled", True)):
             direct = contact.plan_to_joint_goal(
