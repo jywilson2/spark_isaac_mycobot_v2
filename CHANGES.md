@@ -1,5 +1,15 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter32: Reject tip-omit/approach ends that fail tip-face classify (2026-07-17)
+
+**Enumerated changes**
+
+1. **`plan_axial_tip_omit_lerp`** — after IK, require ``classify_tip_contact`` OK
+   at the endpoint (iter31 GUI Ep6: axis_out≈16–17° then settle invalid_side).
+2. **Post tip-omit path gate** — strict end-pose tip-face check for CuRobo paths.
+3. **`tip_path_tip_face_ok`** — inside the outer contact shell, enforce tip-face
+   axis tol (≈15°) for ``wrong_side_axis`` (not the soft 0.5 rad latch).
+
 ## Iter31: Tip-omit patch lateral = tip-face disk 4 mm (2026-07-17)
 
 **Enumerated changes**

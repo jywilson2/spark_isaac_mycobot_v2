@@ -290,6 +290,31 @@ def plan_axial_tip_omit_lerp(
             if lat > float(patch_lateral_max_m) + 0.001:
                 last_reason = f"patch_lateral_m={lat:.4f}"
                 continue
+        # End pose must tip-face classify (iter31 GUI Ep6: patch IK landed
+        # axis_out≈16–17° → settle PLAN_FAIL(invalid_side) after recovery_ok).
+        if sphere_center_m is not None and sphere_radius_m is not None:
+            try:
+                from pathlib import Path
+                import sys
+
+                _repo = Path(__file__).resolve().parents[3]
+                if str(_repo) not in sys.path:
+                    sys.path.insert(0, str(_repo))
+                from isaac_sim.target_marker import classify_tip_contact
+            except Exception:
+                classify_tip_contact = None
+            if classify_tip_contact is not None:
+                pose1 = forward_kinematics(q1, model=model)
+                standoff_from = tip1 + (tip1 - center)
+                fok, freason, _fm = classify_tip_contact(
+                    tip1,
+                    center,
+                    approach_from_m=standoff_from,
+                    ee_quaternion_wxyz=pose1.quaternion_wxyz,
+                )
+                if not fok:
+                    last_reason = f"end_tip_face_{freason}"
+                    continue
         wp = interpolate_joint_path(q0, q1, n_samples=max(2, int(n_samples)))
         return PlannedTrajectory(
             waypoints_rad=wp,
@@ -441,7 +466,15 @@ def tip_path_tip_face_ok(
         bad = freason in ("side_graze", "through", "immersed")
         if freason == "wrong_side_axis":
             ax = float(fm.get("axis_out_err_rad", 0.0))
-            bad = ax > latch_axis
+            # Far from the surface shell: only latch clear side/barrel (~90°) or
+            # flipped/back (~180°). Inside the outer contact shell, enforce the
+            # tip-face axis tol (≈15°) so approach/tip-omit cannot return ok with
+            # axis_out≈16–17° that settle then PLAN_FAIL (iter31 GUI Ep6).
+            axis_tol = float(cfg.get("contact_axis_tolerance_rad", 0.26))
+            if d_tf <= float(sphere_radius_m) + 0.004:
+                bad = ax > axis_tol
+            else:
+                bad = ax > latch_axis
         if bad:
             return False, str(freason)
     return True, "ok"
@@ -1846,6 +1879,42 @@ def try_oriented_tip_face_contact(
                 f"tip_omit_reject_tip_face reason={tf_reason}",
             )
             return None
+        # Strict end-pose tip-face gate (path latch allows axis_out up to ~0.5
+        # rad; settle uses ≈15°. iter31 GUI Ep6: recovery_ok then settle
+        # wrong_side_axis at 17°).
+        try:
+            from pathlib import Path
+            import sys
+
+            _repo = Path(__file__).resolve().parents[3]
+            if str(_repo) not in sys.path:
+                sys.path.insert(0, str(_repo))
+            from isaac_sim.target_marker import classify_tip_contact as _ctc_end
+        except Exception:
+            _ctc_end = None
+        if _ctc_end is not None:
+            q_end = np.asarray(wp_nudge_chk[-1], dtype=float).reshape(6)
+            pose_end = forward_kinematics(q_end, model=mdl)
+            tip_end_fk = np.asarray(pose_end.position_m, dtype=float).reshape(3)
+            standoff_from = np.asarray(
+                approach.standoff_position_m, dtype=float
+            ).reshape(3)
+            fok_e, freason_e, _fm_e = _ctc_end(
+                tip_end_fk,
+                sphere_center_m,
+                approach_from_m=standoff_from,
+                ee_quaternion_wxyz=pose_end.quaternion_wxyz,
+            )
+            if not fok_e:
+                log.append(
+                    f"contact_nudge_refused:end_tip_face|reason={freason_e}"
+                )
+                _decision(
+                    decision_emit,
+                    log,
+                    f"tip_omit_reject_tip_face reason=end_{freason_e}",
+                )
+                return None
 
     tip_end = approach.pierce_position_m
     ok_ax, ax_reason = validate_axial_contact_segment(

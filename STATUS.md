@@ -145,7 +145,8 @@ iter25 **11/12** + skip_frac=0; iter24 contact **11/11 rate=1.0**.
 | 28 | headless viz=16 n_poses=80 | **FAIL** 5/6 Ep6 recovery_timeout (axial/curobo tip-omit IK) | tip-face patch tip-omit |
 | 29 | headless viz=16 n_poses=80 | **PASS** ok=16 fail=0 rate=1.000 skip_frac=0 | long GUI viz=48 |
 | 30 | GUI viz=48 n_poses=80 | **FAIL** 23/24 Ep24 recovery_timeout (axial 3mm + curobo side_graze) | tip-omit patch 4 mm |
-| 31 | GUI viz=48 n_poses=80 | **RUNNING** `/tmp/gui_iter31.log` | await rate=1.0 |
+| 31 | GUI viz=48 n_poses=80 | **FAIL** 5/6 Ep6 invalid_side (axis_out≈17°) | end tip-face gate |
+| 32 | GUI viz=48 n_poses=80 | **PENDING** end tip-face reject | await rate=1.0 |
 
 
 
