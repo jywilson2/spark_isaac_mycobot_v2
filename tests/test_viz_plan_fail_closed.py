@@ -20,6 +20,7 @@ from isaac_sim.viz_plan_policy import (
     plan_ok_rate,
     plan_result_is_executable,
     resolve_marker_visual_state,
+    settle_should_restore_no_contact,
     settle_should_restore_q_at_contact,
 )
 from residual_adaptive_ik.kinematics.numerical_ik import load_joint_limits_rad
@@ -251,10 +252,48 @@ def test_settle_should_restore_near_tol_wrong_axis_not_side_back():
     )
 
 
+def test_settle_should_restore_near_shell_no_contact_not_far():
+    """Near-shell post-green drift may restore; far no_contact must not."""
+    r = 0.012
+    outer = 0.002  # frozen outer_tol — must not widen classify
+    # Just past shell (14.5 mm) after mid-path green → restore candidate.
+    assert settle_should_restore_no_contact(
+        settle_reason="no_contact",
+        dist_m=0.0145,
+        contact_distance_m=r,
+        outer_tol_m=outer,
+        had_midpath_green=True,
+    )
+    # Historical Ep2/Ep15 far drift — honest no_contact.
+    assert not settle_should_restore_no_contact(
+        settle_reason="no_contact",
+        dist_m=0.0187,
+        contact_distance_m=r,
+        outer_tol_m=outer,
+        had_midpath_green=True,
+    )
+    assert not settle_should_restore_no_contact(
+        settle_reason="no_contact",
+        dist_m=0.0204,
+        contact_distance_m=r,
+        outer_tol_m=outer,
+        had_midpath_green=True,
+    )
+    # No mid-path green → no restore.
+    assert not settle_should_restore_no_contact(
+        settle_reason="no_contact",
+        dist_m=0.0145,
+        contact_distance_m=r,
+        outer_tol_m=outer,
+        had_midpath_green=False,
+    )
+
+
 def test_viz_wires_settle_restore_q_at_contact():
     """Source contract: near-tol settle wrong_side uses q_at_contact restore."""
     src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
     assert "settle_should_restore_q_at_contact" in src
+    assert "settle_should_restore_no_contact" in src
     assert "SETTLE_RESTORE_Q_CONTACT" in src
 
 

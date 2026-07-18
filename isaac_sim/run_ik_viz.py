@@ -1967,19 +1967,22 @@ def run_viz(args: argparse.Namespace) -> int:
                                 f"axis_out={np.degrees(fm['axis_out_err_rad']):.0f}deg)"
                             )
                     else:
-                        # Near-tol settle drift (axis just over tip-face tol):
-                        # restore validated mid-path green once and reclassify.
-                        # Do not widen TARGET_MARKER_TOOL_AXIS_TOL_RAD — true
-                        # side/back (axis > latch) stay PLAN_FAIL(invalid_side).
+                        # Near-tol / near-shell settle drift after mid-path green:
+                        # restore validated q_at_contact once and reclassify.
+                        # Do not widen frozen tip-face axis or outer_tol — true
+                        # side/back and far no_contact stay PLAN_FAIL.
                         from isaac_sim.viz_plan_policy import (
+                            settle_should_restore_no_contact,
                             settle_should_restore_q_at_contact,
                         )
 
+                        had_green = bool(contacted) or bool(
+                            contact_diag.get("stop_motion")
+                        )
                         q_green_settle = contact_diag.get("q_at_contact")
                         restored_settle = False
-                        if (
-                            q_green_settle is not None
-                            and settle_should_restore_q_at_contact(
+                        may_restore = q_green_settle is not None and (
+                            settle_should_restore_q_at_contact(
                                 settle_reason=str(freason),
                                 axis_out_err_rad=float(
                                     fm.get("axis_out_err_rad", float("nan"))
@@ -1987,10 +1990,23 @@ def run_viz(args: argparse.Namespace) -> int:
                                 axis_tol_rad=float(
                                     TARGET_MARKER_TOOL_AXIS_TOL_RAD
                                 ),
-                                had_midpath_green=bool(contacted)
-                                or bool(contact_diag.get("stop_motion")),
+                                had_midpath_green=had_green,
                             )
-                        ):
+                            or settle_should_restore_no_contact(
+                                settle_reason=str(freason),
+                                dist_m=float(
+                                    fm.get("dist_m", float("nan"))
+                                ),
+                                contact_distance_m=float(
+                                    TARGET_MARKER_CONTACT_DISTANCE_M
+                                ),
+                                outer_tol_m=float(
+                                    TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M
+                                ),
+                                had_midpath_green=had_green,
+                            )
+                        )
+                        if may_restore:
                             try:
                                 q_green_settle = np.asarray(
                                     q_green_settle, dtype=float
@@ -2017,6 +2033,7 @@ def run_viz(args: argparse.Namespace) -> int:
                                     ee_quaternion_wxyz=p_fin.quaternion_wxyz,
                                 )
                                 if fok2:
+                                    was_reason = str(freason)
                                     final_ok = True
                                     contacted = True
                                     freason = freason2
@@ -2027,10 +2044,11 @@ def run_viz(args: argparse.Namespace) -> int:
                                         state=MarkerVisualState.CONTACT,
                                     )
                                     _viz_log(
-                                        "  SETTLE_RESTORE_Q_CONTACT: near-tol "
-                                        "wrong_side_axis recovered via "
-                                        "q_at_contact "
-                                        f"(axis_out="
+                                        "  SETTLE_RESTORE_Q_CONTACT: near-miss "
+                                        "settle recovered via q_at_contact "
+                                        f"(was={was_reason} now=ok "
+                                        f"dist={fm['dist_m'] * 1e3:.1f}mm "
+                                        f"axis_out="
                                         f"{np.degrees(fm['axis_out_err_rad']):.0f}"
                                         "deg)"
                                     )

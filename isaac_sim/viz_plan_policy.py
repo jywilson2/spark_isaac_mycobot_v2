@@ -54,6 +54,42 @@ def settle_should_restore_q_at_contact(
     return ax <= latch + 1e-12
 
 
+def settle_should_restore_no_contact(
+    *,
+    settle_reason: str,
+    dist_m: float,
+    contact_distance_m: float,
+    outer_tol_m: float,
+    had_midpath_green: bool,
+    restore_slack_m: float = 0.003,
+) -> bool:
+    """True when settle ``no_contact`` is near-shell post-green drift.
+
+    Why
+    ---
+    After a mid-path tip-face green, hold / servo lag can leave the tip a
+    millimetre or two past the frozen surface shell
+    (``radius + outer_tol``, historically 14 mm). Restoring ``q_at_contact``
+    recovers those without widening ``TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M``.
+
+    Far tips (e.g. 18.7 mm / 20.4 mm historical Ep2/Ep15) stay above
+    ``shell + restore_slack`` and remain honest ``PLAN_FAIL(no_contact)``.
+
+    Units: meters. Pure / Kit-free (Phase 1c no_contact drill-down).
+    """
+    if not had_midpath_green:
+        return False
+    if str(settle_reason) != "no_contact":
+        return False
+    d = float(dist_m)
+    if not math.isfinite(d):
+        return False
+    shell = float(contact_distance_m) + float(outer_tol_m)
+    # Classify already requires d > shell for no_contact; only a small
+    # post-green lag band is restorable.
+    return d <= shell + float(restore_slack_m) + 1e-12
+
+
 class MarkerVisualState(str, Enum):
     """IK target sphere appearance in Phase 1–2 viz."""
 

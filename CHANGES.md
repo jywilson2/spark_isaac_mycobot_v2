@@ -1,5 +1,16 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Drill Phase 1c: Near-shell settle no_contact restore (2026-07-17)
+
+**Enumerated changes**
+
+1. **`viz_plan_policy.settle_should_restore_no_contact`** — mid-path green +
+   settle ``no_contact`` with dist ≤ shell+3 mm may restore; far tips
+   (18.7 / 20.4 mm) stay honest ``PLAN_FAIL(no_contact)``.
+2. **`run_ik_viz` settle classify** — OR with near-tol wrong_side restore into
+   the same ``SETTLE_RESTORE_Q_CONTACT`` path.
+3. **Not changed** — frozen ``TARGET_MARKER_SURFACE_CONTACT_OUTER_TOL_M`` (2 mm).
+
 ## Drill Phase 1b: Near-tol settle wrong_side restore (2026-07-17)
 
 **Enumerated changes**
