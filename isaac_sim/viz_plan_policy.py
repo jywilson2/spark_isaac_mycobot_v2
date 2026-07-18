@@ -13,9 +13,45 @@ See ``spec.md`` Phase 2, ``configs/planning/collision.yaml``, and
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+
+def settle_should_restore_q_at_contact(
+    *,
+    settle_reason: str,
+    axis_out_err_rad: float,
+    axis_tol_rad: float,
+    had_midpath_green: bool,
+) -> bool:
+    """True when settle ``wrong_side_axis`` is near-tol drift, not true side/back.
+
+    Why
+    ---
+    Mid-path tip-face greens can settle a few degrees past
+    ``TARGET_MARKER_TOOL_AXIS_TOL_RAD`` (~15°) after hold / CONTACT_HOLD
+    (historical Ep8 / Ep4: axis_out ≈16–18°). Restoring the already-validated
+    ``q_at_contact`` recovers those without widening the frozen tip-face tol.
+
+    True side/barrel (~90°) and flipped/back (~180°) stay above the mid-path
+    latch threshold (``max(0.50, 2·tol)``) and must **not** restore — those
+    remain honest ``PLAN_FAIL(invalid_side)``.
+
+    Units: radians. Pure / Kit-free (Phase 1b invalid_side drill-down).
+    """
+    if not had_midpath_green:
+        return False
+    if str(settle_reason) != "wrong_side_axis":
+        return False
+    ax = float(axis_out_err_rad)
+    if not math.isfinite(ax):
+        return False
+    tol = float(axis_tol_rad)
+    latch = max(0.50, 2.0 * tol)
+    # reason already implies ax > tol; only near-tol band is restorable.
+    return ax <= latch + 1e-12
 
 
 class MarkerVisualState(str, Enum):

@@ -2,6 +2,7 @@
 """Regression tests: fail-closed planning must not drive colliding GUI motion."""
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,7 @@ from isaac_sim.viz_plan_policy import (
     plan_ok_rate,
     plan_result_is_executable,
     resolve_marker_visual_state,
+    settle_should_restore_q_at_contact,
 )
 from residual_adaptive_ik.kinematics.numerical_ik import load_joint_limits_rad
 from residual_adaptive_ik.kinematics.urdf_model import load_urdf_model
@@ -207,6 +209,53 @@ def test_marker_no_contact_reclassified_as_failure():
     assert "reclassified as PLAN_FAIL" in src
     assert "n_plan_ok -= 1" in src
     assert "n_plan_fail += 1" in src
+
+
+def test_settle_should_restore_near_tol_wrong_axis_not_side_back():
+    """Near-tol settle axis drift may restore; true side/back must not."""
+    tol = 0.26  # ≈15° frozen tip-face tol
+    # Just over tol (≈17°) after mid-path green → restore candidate.
+    assert settle_should_restore_q_at_contact(
+        settle_reason="wrong_side_axis",
+        axis_out_err_rad=0.30,
+        axis_tol_rad=tol,
+        had_midpath_green=True,
+    )
+    # No mid-path green → no restore.
+    assert not settle_should_restore_q_at_contact(
+        settle_reason="wrong_side_axis",
+        axis_out_err_rad=0.30,
+        axis_tol_rad=tol,
+        had_midpath_green=False,
+    )
+    # Side/barrel (~90°) — honest invalid_side.
+    assert not settle_should_restore_q_at_contact(
+        settle_reason="wrong_side_axis",
+        axis_out_err_rad=math.radians(90.0),
+        axis_tol_rad=tol,
+        had_midpath_green=True,
+    )
+    # Flipped/back (~174°) — honest invalid_side.
+    assert not settle_should_restore_q_at_contact(
+        settle_reason="wrong_side_axis",
+        axis_out_err_rad=math.radians(174.0),
+        axis_tol_rad=tol,
+        had_midpath_green=True,
+    )
+    # Other settle reasons never restore via this helper.
+    assert not settle_should_restore_q_at_contact(
+        settle_reason="side_graze",
+        axis_out_err_rad=0.30,
+        axis_tol_rad=tol,
+        had_midpath_green=True,
+    )
+
+
+def test_viz_wires_settle_restore_q_at_contact():
+    """Source contract: near-tol settle wrong_side uses q_at_contact restore."""
+    src = (REPO / "isaac_sim" / "run_ik_viz.py").read_text(encoding="utf-8")
+    assert "settle_should_restore_q_at_contact" in src
+    assert "SETTLE_RESTORE_Q_CONTACT" in src
 
 
 def test_viz_settle_side_back_immerse_become_plan_fail():

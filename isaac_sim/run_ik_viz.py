@@ -1967,31 +1967,115 @@ def run_viz(args: argparse.Namespace) -> int:
                                 f"axis_out={np.degrees(fm['axis_out_err_rad']):.0f}deg)"
                             )
                     else:
-                        final_ok = False
-                        fail_reason_tag = (
-                            "immersed"
-                            if freason == "immersed"
-                            else (
-                                "no_contact"
-                                if freason == "no_contact"
-                                else "invalid_side"
+                        # Near-tol settle drift (axis just over tip-face tol):
+                        # restore validated mid-path green once and reclassify.
+                        # Do not widen TARGET_MARKER_TOOL_AXIS_TOL_RAD — true
+                        # side/back (axis > latch) stay PLAN_FAIL(invalid_side).
+                        from isaac_sim.viz_plan_policy import (
+                            settle_should_restore_q_at_contact,
+                        )
+
+                        q_green_settle = contact_diag.get("q_at_contact")
+                        restored_settle = False
+                        if (
+                            q_green_settle is not None
+                            and settle_should_restore_q_at_contact(
+                                settle_reason=str(freason),
+                                axis_out_err_rad=float(
+                                    fm.get("axis_out_err_rad", float("nan"))
+                                ),
+                                axis_tol_rad=float(
+                                    TARGET_MARKER_TOOL_AXIS_TOL_RAD
+                                ),
+                                had_midpath_green=bool(contacted)
+                                or bool(contact_diag.get("stop_motion")),
                             )
-                        )
-                        if freason != "no_contact":
-                            n_invalid_side += 1
-                        _set_target_marker_color(
-                            stage, state=MarkerVisualState.PLAN_FAIL
-                        )
-                        _viz_log(
-                            "  CONTACT_INVALID_SETTLE: settled contact invalid "
-                            f"(reason={freason}, "
-                            f"dist={fm['dist_m'] * 1e3:.1f}mm "
-                            f"axis_in={np.degrees(fm['axis_in_err_rad']):.0f}deg "
-                            f"axis_out={np.degrees(fm['axis_out_err_rad']):.0f}deg "
-                            f"pen={fm['penetration_m'] * 1e3:.1f}mm "
-                            f"lat={fm['lateral_m'] * 1e3:.1f}mm) — PLAN_FAIL",
-                            level="error",
-                        )
+                        ):
+                            try:
+                                q_green_settle = np.asarray(
+                                    q_green_settle, dtype=float
+                                ).reshape(6)
+                                _set_joint_positions(
+                                    articulation, q_green_settle
+                                )
+                                q_settled = q_green_settle
+                                p_fin = forward_kinematics(q_settled)
+                                tip_fin = np.asarray(
+                                    p_fin.position_m, dtype=float
+                                ).reshape(3)
+                                ap_g = contact_diag.get(
+                                    "approach_from_at_contact"
+                                )
+                                if ap_g is None:
+                                    ap_g = ap_fin
+                                fok2, freason2, fm2 = classify_tip_contact(
+                                    tip_fin,
+                                    target_xyz,
+                                    approach_from_m=np.asarray(
+                                        ap_g, dtype=float
+                                    ).reshape(3),
+                                    ee_quaternion_wxyz=p_fin.quaternion_wxyz,
+                                )
+                                if fok2:
+                                    final_ok = True
+                                    contacted = True
+                                    freason = freason2
+                                    fm = fm2
+                                    restored_settle = True
+                                    _set_target_marker_color(
+                                        stage,
+                                        state=MarkerVisualState.CONTACT,
+                                    )
+                                    _viz_log(
+                                        "  SETTLE_RESTORE_Q_CONTACT: near-tol "
+                                        "wrong_side_axis recovered via "
+                                        "q_at_contact "
+                                        f"(axis_out="
+                                        f"{np.degrees(fm['axis_out_err_rad']):.0f}"
+                                        "deg)"
+                                    )
+                                else:
+                                    freason = freason2
+                                    fm = fm2
+                                    _viz_log(
+                                        "  SETTLE_RESTORE_Q_CONTACT: reclassify "
+                                        f"still {freason2} — keeping PLAN_FAIL",
+                                        level="warn",
+                                    )
+                            except Exception as exc:  # noqa: BLE001
+                                _viz_log(
+                                    "  SETTLE_RESTORE_Q_CONTACT: skipped "
+                                    f"({exc})",
+                                    level="warn",
+                                )
+                        if not restored_settle:
+                            final_ok = False
+                            fail_reason_tag = (
+                                "immersed"
+                                if freason == "immersed"
+                                else (
+                                    "no_contact"
+                                    if freason == "no_contact"
+                                    else "invalid_side"
+                                )
+                            )
+                            if freason != "no_contact":
+                                n_invalid_side += 1
+                            _set_target_marker_color(
+                                stage, state=MarkerVisualState.PLAN_FAIL
+                            )
+                            _viz_log(
+                                "  CONTACT_INVALID_SETTLE: settled contact "
+                                f"invalid (reason={freason}, "
+                                f"dist={fm['dist_m'] * 1e3:.1f}mm "
+                                f"axis_in="
+                                f"{np.degrees(fm['axis_in_err_rad']):.0f}deg "
+                                f"axis_out="
+                                f"{np.degrees(fm['axis_out_err_rad']):.0f}deg "
+                                f"pen={fm['penetration_m'] * 1e3:.1f}mm "
+                                f"lat={fm['lateral_m'] * 1e3:.1f}mm) — PLAN_FAIL",
+                                level="error",
+                            )
                     # Volumetric EE-body check: tip-zone sphere ∩ marker is OK
                     # at contact; any *side* sphere hit means the barrel/flange
                     # clipped the marker (false-green under tip-omit). Pure

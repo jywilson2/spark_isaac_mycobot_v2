@@ -1,5 +1,17 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Drill Phase 1b: Near-tol settle wrong_side restore (2026-07-17)
+
+**Enumerated changes**
+
+1. **`viz_plan_policy.settle_should_restore_q_at_contact`** — pure predicate:
+   mid-path green + settle ``wrong_side_axis`` with axis_out ≤ latch
+   (``max(0.50, 2·tol)``) may restore; side/back (~90°/180°) must not.
+2. **`run_ik_viz` settle classify** — one ``q_at_contact`` restore + reclassify
+   (``SETTLE_RESTORE_Q_CONTACT``) before ``PLAN_FAIL(invalid_side)``.
+3. **Tests** — near-tol vs side/back unit cases + source wiring contract.
+4. **Not changed** — frozen ``TARGET_MARKER_TOOL_AXIS_TOL_RAD`` (~15°).
+
 ## Drill Phase 1a: Recovery timeout budget burn (2026-07-17)
 
 **Enumerated changes**
