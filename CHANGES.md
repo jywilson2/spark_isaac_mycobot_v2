@@ -1,5 +1,18 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter29: Tip-face patch axial tip-omit when exact pierce IK-fails (2026-07-17)
+
+**Enumerated changes**
+
+1. **`recovery.py` `plan_axial_tip_omit_lerp`** — after exact pierce DLS fails,
+   search a tip-face surface patch (≤ ``contact_lateral_tolerance_m``) with
+   rebuilt pad quats (iter28 Ep6: ori≈0 but position stuck ~2 cm off pierce).
+2. **Post-approach tip-omit** — retry axial+patch across orientation cone
+   before cuRobo tip-omit fallback.
+3. **`tests/test_axial_tip_omit_patch.py`** — Ep6-like hard pierce contract.
+
+**Review recommended:** patch lateral cap vs tip-face disk (4 mm); cone retry cost.
+
 ## Iter28: Always classify settle pose (even without mid-path green) (2026-07-17)
 
 **Enumerated changes**

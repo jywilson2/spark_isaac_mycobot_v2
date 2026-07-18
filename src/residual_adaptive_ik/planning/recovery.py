@@ -142,6 +142,57 @@ def tip_omit_length_allow_m(cfg: dict, *, nudge_max_m: float) -> float:
     return float(min(max(1e-4, float(nudge_max_m)), max(1e-4, via_cap)))
 
 
+def _tip_face_patch_targets_m(
+    pierce_position_m: np.ndarray,
+    sphere_center_m: np.ndarray,
+    sphere_radius_m: float,
+    *,
+    patch_lateral_max_m: float,
+    n_lateral: int = 3,
+    n_azimuth: int = 8,
+) -> list[np.ndarray]:
+    """Ordered tip-face surface targets: exact pierce, then small lateral patch.
+
+    Why
+    ---
+    Exact center-ray pierce can be IK-unreachable while a nearby surface point
+    within the tip-face disk (≤ ``TARGET_MARKER_TIP_FACE_RADIUS_M`` ≈ 4 mm) is
+    reachable (iter28 Ep6: axial ``max_iterations_position`` with ori≈0). Stay
+    on the sphere surface so tip-face classify can still green.
+    """
+    pierce = np.asarray(pierce_position_m, dtype=float).reshape(3)
+    center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+    r = float(sphere_radius_m)
+    out: list[np.ndarray] = [pierce.copy()]
+    radial = pierce - center
+    nrm = float(np.linalg.norm(radial))
+    if nrm < 1e-9 or r < 1e-9:
+        return out
+    n_hat = radial / nrm
+    # Orthonormal basis in the tangent plane at the pierce.
+    helper = np.array([0.0, 0.0, 1.0], dtype=float)
+    if abs(float(np.dot(n_hat, helper))) > 0.9:
+        helper = np.array([0.0, 1.0, 0.0], dtype=float)
+    t1 = np.cross(n_hat, helper)
+    t1 = t1 / float(np.linalg.norm(t1))
+    t2 = np.cross(n_hat, t1)
+    lat_max = max(0.0, float(patch_lateral_max_m))
+    if lat_max <= 0.0:
+        return out
+    for lat in np.linspace(lat_max / float(max(1, n_lateral)), lat_max, n_lateral):
+        for ang in np.linspace(0.0, 2.0 * math.pi, n_azimuth, endpoint=False):
+            offset = float(lat) * (
+                math.cos(float(ang)) * t1 + math.sin(float(ang)) * t2
+            )
+            direction = pierce - center + offset
+            dnorm = float(np.linalg.norm(direction))
+            if dnorm < 1e-9:
+                continue
+            tip_t = center + (r / dnorm) * direction
+            out.append(tip_t.astype(float))
+    return out
+
+
 def plan_axial_tip_omit_lerp(
     q_start_rad: np.ndarray,
     pierce_position_m: np.ndarray,
@@ -150,6 +201,9 @@ def plan_axial_tip_omit_lerp(
     model: UrdfKinematicModel,
     dt_s: float = 0.02,
     n_samples: int = 12,
+    sphere_center_m: np.ndarray | None = None,
+    sphere_radius_m: float | None = None,
+    patch_lateral_max_m: float = 0.003,
 ) -> PlannedTrajectory:
     """Short tip-omit standoff→pierce via DLS-IK + joint lerp (not MotionGen).
 
@@ -160,12 +214,13 @@ def plan_axial_tip_omit_lerp(
     before the pierce — mid-path latch then PLAN_FAIL even when settle looks
     fine. A seeded IK + short joint lerp keeps Δq small and approximately
     axial (spec.md Mandatory contact failure conditions).
+
+    When the exact pierce is IK-unreachable, optionally search a small tip-face
+    patch on the sphere (still ≤ tip-face lateral disk) before failing.
     """
     q0 = _clamp_joints(np.asarray(q_start_rad, dtype=float).reshape(6))
-    pose_tgt = Pose(
-        position_m=np.asarray(pierce_position_m, dtype=float).reshape(3),
-        quaternion_wxyz=np.asarray(quaternion_wxyz, dtype=float).reshape(4),
-    )
+    pierce0 = np.asarray(pierce_position_m, dtype=float).reshape(3)
+    quat0 = np.asarray(quaternion_wxyz, dtype=float).reshape(4)
     # Tip-omit IK: position must land in the surface shell; orientation may
     # already be at the tip-face / cone edge after spheres-ON approach
     # (iter22 Ep4: ori_tol=0.02 caused endless axial_ik fail → curobo fail).
@@ -177,36 +232,71 @@ def plan_axial_tip_omit_lerp(
         enforce_joint_limits=True,
         model=model,
     )
-    sol = ik.solve(pose_tgt, seed_q=q0)
-    if not sol.success:
+    targets: list[tuple[np.ndarray, np.ndarray, str]] = [
+        (pierce0, quat0, "exact")
+    ]
+    if sphere_center_m is not None and sphere_radius_m is not None:
+        center = np.asarray(sphere_center_m, dtype=float).reshape(3)
+        radius = float(sphere_radius_m)
+        for tip_t in _tip_face_patch_targets_m(
+            pierce0,
+            center,
+            radius,
+            patch_lateral_max_m=float(patch_lateral_max_m),
+        )[1:]:
+            # Rebuild pad-facing quat for this surface point (same cone family).
+            ap_t = build_sphere_contact_approach(
+                tip_t + (tip_t - center),  # approach_from outside along radial
+                center,
+                radius,
+                standoff_m=0.008,
+                nudge_m=0.008,
+                current_quaternion_wxyz=quat0,
+            )
+            targets.append(
+                (
+                    np.asarray(tip_t, dtype=float).reshape(3),
+                    np.asarray(ap_t.quaternion_wxyz, dtype=float).reshape(4),
+                    "patch",
+                )
+            )
+
+    last_reason = "max_iterations"
+    for tip_tgt, quat_tgt, kind in targets:
+        pose_tgt = Pose(position_m=tip_tgt, quaternion_wxyz=quat_tgt)
+        sol = ik.solve(pose_tgt, seed_q=q0)
+        if not sol.success:
+            last_reason = str(sol.reason)
+            continue
+        q1 = _clamp_joints(np.asarray(sol.q, dtype=float).reshape(6))
+        # Verify FK tip is on the surface shell before accepting the lerp.
+        tip1 = np.asarray(
+            forward_kinematics(q1, model=model).position_m, dtype=float
+        ).reshape(3)
+        tip_err = float(np.linalg.norm(tip1 - tip_tgt))
+        if tip_err > 0.004:
+            last_reason = f"axial_ik_tip_err_m={tip_err:.4f}"
+            continue
+        # Optional: when patching, keep lateral vs exact pierce inside tip-face.
+        if kind == "patch":
+            lat = float(np.linalg.norm(tip1 - pierce0))
+            if lat > float(patch_lateral_max_m) + 0.001:
+                last_reason = f"patch_lateral_m={lat:.4f}"
+                continue
+        wp = interpolate_joint_path(q0, q1, n_samples=max(2, int(n_samples)))
         return PlannedTrajectory(
-            waypoints_rad=np.zeros((0, 6)),
+            waypoints_rad=wp,
             dt_s=float(dt_s),
-            success=False,
+            success=True,
             backend="axial_lerp",
-            message=f"plan_failed:axial_ik|{sol.reason}",
+            message=f"ok|axial_tip_omit_lerp|{kind}",
         )
-    q1 = _clamp_joints(np.asarray(sol.q, dtype=float).reshape(6))
-    # Verify FK tip is on the surface shell before accepting the lerp.
-    tip1 = np.asarray(
-        forward_kinematics(q1, model=model).position_m, dtype=float
-    ).reshape(3)
-    tip_err = float(np.linalg.norm(tip1 - pose_tgt.position_m))
-    if tip_err > 0.004:
-        return PlannedTrajectory(
-            waypoints_rad=np.zeros((0, 6)),
-            dt_s=float(dt_s),
-            success=False,
-            backend="axial_lerp",
-            message=f"plan_failed:axial_ik_tip_err_m={tip_err:.4f}",
-        )
-    wp = interpolate_joint_path(q0, q1, n_samples=max(2, int(n_samples)))
     return PlannedTrajectory(
-        waypoints_rad=wp,
+        waypoints_rad=np.zeros((0, 6)),
         dt_s=float(dt_s),
-        success=True,
+        success=False,
         backend="axial_lerp",
-        message="ok|axial_tip_omit_lerp",
+        message=f"plan_failed:axial_ik|{last_reason}",
     )
 
 
@@ -1371,6 +1461,11 @@ def try_oriented_tip_face_contact(
                     quat_try,
                     model=mdl,
                     dt_s=last_dt,
+                    sphere_center_m=sphere_center_m,
+                    sphere_radius_m=sphere_radius_m,
+                    patch_lateral_max_m=float(
+                        cfg.get("contact_lateral_tolerance_m", 0.003)
+                    ),
                 )
                 if not leg_nudge.ok:
                     # Fallback: tip-omit MotionGen (may graze — last resort).
@@ -1631,7 +1726,47 @@ def try_oriented_tip_face_contact(
         quat,
         model=mdl,
         dt_s=last_dt,
+        sphere_center_m=sphere_center_m,
+        sphere_radius_m=sphere_radius_m,
+        patch_lateral_max_m=float(
+            cfg.get("contact_lateral_tolerance_m", 0.003)
+        ),
     )
+    if not leg_nudge.ok:
+        # Retry axial tip-omit across the orientation cone before MotionGen
+        # (iter28 Ep6: exact pierce IK-hard; patch+cone often lands tip-face).
+        if pad_ok_for_motiongen:
+            pose_omit = forward_kinematics(q_cur, model=mdl)
+            omit_quats = contact_orientation_candidates(
+                approach,
+                fallback_quaternion_wxyz=pose_omit.quaternion_wxyz,
+                cfg=cfg,
+            )
+            for qi, quat_try in enumerate(omit_quats):
+                if np.allclose(quat_try, quat, atol=1e-9):
+                    continue
+                leg_alt = plan_axial_tip_omit_lerp(
+                    q_cur,
+                    approach.pierce_position_m,
+                    quat_try,
+                    model=mdl,
+                    dt_s=last_dt,
+                    sphere_center_m=sphere_center_m,
+                    sphere_radius_m=sphere_radius_m,
+                    patch_lateral_max_m=float(
+                        cfg.get("contact_lateral_tolerance_m", 0.003)
+                    ),
+                )
+                if leg_alt.ok:
+                    _decision(
+                        decision_emit,
+                        log,
+                        f"axial_tip_omit_ok_cone q{qi} "
+                        f"backend={leg_alt.backend} msg={leg_alt.message}",
+                    )
+                    leg_nudge = leg_alt
+                    quat = np.asarray(quat_try, dtype=float).reshape(4)
+                    break
     if not leg_nudge.ok:
         if not pad_ok_for_motiongen:
             log.append(
