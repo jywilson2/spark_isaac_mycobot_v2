@@ -1763,87 +1763,146 @@ def try_oriented_tip_face_contact(
         )
         return None
 
-    leg_nudge = plan_axial_tip_omit_lerp(
-        q_cur,
-        approach.pierce_position_m,
-        quat,
-        model=mdl,
-        dt_s=last_dt,
-        sphere_center_m=sphere_center_m,
-        sphere_radius_m=sphere_radius_m,
-        patch_lateral_max_m=float(
-            cfg.get(
-                "contact_tip_omit_patch_lateral_m",
-                _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
-            )
-        ),
+    patch_lat = float(
+        cfg.get(
+            "contact_tip_omit_patch_lateral_m",
+            _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
+        )
     )
-    if not leg_nudge.ok:
-        # Retry axial tip-omit across the orientation cone before MotionGen
-        # (iter28 Ep6: exact pierce IK-hard; patch+cone often lands tip-face).
-        if pad_ok_for_motiongen:
-            pose_omit = forward_kinematics(q_cur, model=mdl)
-            omit_quats = contact_orientation_candidates(
-                approach,
-                fallback_quaternion_wxyz=pose_omit.quaternion_wxyz,
-                cfg=cfg,
+    pose_omit = forward_kinematics(q_cur, model=mdl)
+    omit_quats = contact_orientation_candidates(
+        approach,
+        fallback_quaternion_wxyz=pose_omit.quaternion_wxyz,
+        cfg=cfg,
+    )
+    # Prefer the approach-chosen quat first, then the rest of the cone.
+    ordered_omit: list[np.ndarray] = [np.asarray(quat, dtype=float).reshape(4)]
+    for q_try in omit_quats:
+        q_try = np.asarray(q_try, dtype=float).reshape(4)
+        if not any(np.allclose(q_try, q_have, atol=1e-9) for q_have in ordered_omit):
+            ordered_omit.append(q_try)
+
+    def _tip_omit_segment_ok(
+        leg: PlannedTrajectory,
+    ) -> tuple[bool, str]:
+        """Tip-face path + end classify for a tip-omit joint segment."""
+        if type(planner).__name__ != "CuRoboMotionPlanner":
+            return True, "ok"
+        wp_chk = np.asarray(leg.waypoints_rad, dtype=float)
+        if wp_chk.ndim != 2 or wp_chk.shape[0] == 0:
+            return False, "empty_path"
+        tf_ok, tf_reason = tip_path_tip_face_ok(
+            wp_chk,
+            sphere_center_m=sphere_center_m,
+            sphere_radius_m=sphere_radius_m,
+            approach_from_m=np.asarray(
+                approach.standoff_position_m, dtype=float
+            ).reshape(3),
+            model=mdl,
+            cfg=cfg,
+            stride=max(1, wp_chk.shape[0] // 8),
+        )
+        if not tf_ok:
+            return False, str(tf_reason)
+        try:
+            from pathlib import Path
+            import sys
+
+            _repo = Path(__file__).resolve().parents[3]
+            if str(_repo) not in sys.path:
+                sys.path.insert(0, str(_repo))
+            from isaac_sim.target_marker import classify_tip_contact as _ctc_end
+        except Exception:
+            return True, "ok"
+        q_end = np.asarray(wp_chk[-1], dtype=float).reshape(6)
+        pose_end = forward_kinematics(q_end, model=mdl)
+        tip_end_fk = np.asarray(pose_end.position_m, dtype=float).reshape(3)
+        standoff_from = np.asarray(
+            approach.standoff_position_m, dtype=float
+        ).reshape(3)
+        fok_e, freason_e, _fm_e = _ctc_end(
+            tip_end_fk,
+            sphere_center_m,
+            approach_from_m=standoff_from,
+            ee_quaternion_wxyz=pose_end.quaternion_wxyz,
+        )
+        if not fok_e:
+            return False, f"end_{freason_e}"
+        return True, "ok"
+
+    leg_nudge = PlannedTrajectory(
+        waypoints_rad=np.zeros((0, 6)),
+        dt_s=last_dt,
+        success=False,
+        backend="axial_lerp",
+        message="plan_failed:tip_omit_untried",
+    )
+    last_reject = "untried"
+    for qi, quat_try in enumerate(ordered_omit):
+        if not pad_ok_for_motiongen and qi > 0:
+            break
+        leg_try = plan_axial_tip_omit_lerp(
+            q_cur,
+            approach.pierce_position_m,
+            quat_try,
+            model=mdl,
+            dt_s=last_dt,
+            sphere_center_m=sphere_center_m,
+            sphere_radius_m=sphere_radius_m,
+            patch_lateral_max_m=patch_lat,
+        )
+        if not leg_try.ok and pad_ok_for_motiongen:
+            leg_try = contact_planner.plan_to_pose(
+                q_cur,
+                approach.pierce_position_m,
+                quat_try,
+                max_attempts=max(1, int(max_attempts)),
+                obstacles=obs_contact,
             )
-            patch_lat = float(
-                cfg.get(
-                    "contact_tip_omit_patch_lateral_m",
-                    _DEFAULT_TIP_OMIT_PATCH_LATERAL_M,
-                )
+        if not leg_try.ok:
+            last_reject = str(leg_try.message)
+            continue
+        seg_ok, seg_reason = _tip_omit_segment_ok(leg_try)
+        if not seg_ok:
+            last_reject = seg_reason
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_reject_tip_face q{qi} reason={seg_reason}",
             )
-            for qi, quat_try in enumerate(omit_quats):
-                if np.allclose(quat_try, quat, atol=1e-9):
-                    continue
-                leg_alt = plan_axial_tip_omit_lerp(
-                    q_cur,
-                    approach.pierce_position_m,
-                    quat_try,
-                    model=mdl,
-                    dt_s=last_dt,
-                    sphere_center_m=sphere_center_m,
-                    sphere_radius_m=sphere_radius_m,
-                    patch_lateral_max_m=patch_lat,
-                )
-                if leg_alt.ok:
-                    _decision(
-                        decision_emit,
-                        log,
-                        f"axial_tip_omit_ok_cone q{qi} "
-                        f"backend={leg_alt.backend} msg={leg_alt.message}",
-                    )
-                    leg_nudge = leg_alt
-                    quat = np.asarray(quat_try, dtype=float).reshape(4)
-                    break
-    if not leg_nudge.ok:
+            continue
+        leg_nudge = leg_try
+        quat = np.asarray(quat_try, dtype=float).reshape(4)
+        if qi > 0:
+            _decision(
+                decision_emit,
+                log,
+                f"tip_omit_ok_cone q{qi} backend={leg_nudge.backend} "
+                f"msg={leg_nudge.message}",
+            )
+        break
+    else:
         if not pad_ok_for_motiongen:
             log.append(
                 f"contact_nudge_refused:pad_misaligned_no_axial:"
                 f"axis_err={axis_err:.3f}>tol={axis_tol:.3f}|"
-                f"axial={leg_nudge.message}"
+                f"reject={last_reject}"
             )
             _decision(
                 decision_emit,
                 log,
                 f"tip_omit_refused_orientation_no_axial "
                 f"axis_err_rad={axis_err:.3f}>tol_rad={axis_tol:.3f} "
-                f"axial={leg_nudge.message}",
+                f"reject={last_reject}",
             )
             return None
         _decision(
             decision_emit,
             log,
-            f"axial_tip_omit_ik_fail → curobo_tip_omit ({leg_nudge.message})",
+            f"tip_omit_reject_tip_face reason={last_reject}",
         )
-        leg_nudge = contact_planner.plan_to_pose(
-            q_cur,
-            approach.pierce_position_m,
-            quat,
-            max_attempts=max(1, int(max_attempts)),
-            obstacles=obs_contact,
-        )
+        return None
+
     log.append(
         f"contact_nudge:standoff_m={standoff_m:.3f}|nudge_m={nudge_m:.3f}|"
         f"{leg_nudge.message}"
@@ -1856,65 +1915,6 @@ def try_oriented_tip_face_contact(
             f"tip_omit_plan_failed msg={leg_nudge.message}",
         )
         return None
-    # Tip-omit segment must not side-graze mid-lerp (iter14 Ep8 lat=6 mm).
-    # Skip for unit FakePlanners (FK tip does not track planned pierce).
-    if type(planner).__name__ == "CuRoboMotionPlanner":
-        wp_nudge_chk = np.asarray(leg_nudge.waypoints_rad, dtype=float)
-        tf_ok, tf_reason = tip_path_tip_face_ok(
-            wp_nudge_chk,
-            sphere_center_m=sphere_center_m,
-            sphere_radius_m=sphere_radius_m,
-            approach_from_m=np.asarray(
-                approach.standoff_position_m, dtype=float
-            ).reshape(3),
-            model=mdl,
-            cfg=cfg,
-            stride=max(1, wp_nudge_chk.shape[0] // 8),
-        )
-        if not tf_ok:
-            log.append(f"contact_nudge_refused:tip_face_path|reason={tf_reason}")
-            _decision(
-                decision_emit,
-                log,
-                f"tip_omit_reject_tip_face reason={tf_reason}",
-            )
-            return None
-        # Strict end-pose tip-face gate (path latch allows axis_out up to ~0.5
-        # rad; settle uses ≈15°. iter31 GUI Ep6: recovery_ok then settle
-        # wrong_side_axis at 17°).
-        try:
-            from pathlib import Path
-            import sys
-
-            _repo = Path(__file__).resolve().parents[3]
-            if str(_repo) not in sys.path:
-                sys.path.insert(0, str(_repo))
-            from isaac_sim.target_marker import classify_tip_contact as _ctc_end
-        except Exception:
-            _ctc_end = None
-        if _ctc_end is not None:
-            q_end = np.asarray(wp_nudge_chk[-1], dtype=float).reshape(6)
-            pose_end = forward_kinematics(q_end, model=mdl)
-            tip_end_fk = np.asarray(pose_end.position_m, dtype=float).reshape(3)
-            standoff_from = np.asarray(
-                approach.standoff_position_m, dtype=float
-            ).reshape(3)
-            fok_e, freason_e, _fm_e = _ctc_end(
-                tip_end_fk,
-                sphere_center_m,
-                approach_from_m=standoff_from,
-                ee_quaternion_wxyz=pose_end.quaternion_wxyz,
-            )
-            if not fok_e:
-                log.append(
-                    f"contact_nudge_refused:end_tip_face|reason={freason_e}"
-                )
-                _decision(
-                    decision_emit,
-                    log,
-                    f"tip_omit_reject_tip_face reason=end_{freason_e}",
-                )
-                return None
 
     tip_end = approach.pierce_position_m
     ok_ax, ax_reason = validate_axial_contact_segment(
@@ -2222,11 +2222,19 @@ def plan_via_standoff(
         tip_to_center = float(np.linalg.norm(tip_start - center))
         ee_close = tip_to_center <= radius + reposition_shell_m
         recent_msgs = "|".join(attempts_log[-8:])
+        # Also reposition after tip-omit tip-face rejects while EE-close
+        # (iter32 Ep9: approach_ok_dls then tip_omit side_graze looped vias
+        # without ever backing off along the base→target radial).
+        tip_omit_stuck = (
+            "tip_omit_reject" in recent_msgs
+            or "tip_face" in recent_msgs
+            or "contact_nudge_refused" in recent_msgs
+        )
         if (
             reposition_enabled
             and reposition_used < reposition_max
             and ee_close
-            and _is_ik_fail(recent_msgs)
+            and (_is_ik_fail(recent_msgs) or tip_omit_stuck)
         ):
             q_new, rtag = try_radial_reposition_via(
                 q_cur,

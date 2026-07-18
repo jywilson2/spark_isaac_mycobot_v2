@@ -1,5 +1,15 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## Iter33: Tip-omit cone retry after tip-face path reject + EE-close reposition (2026-07-17)
+
+**Enumerated changes**
+
+1. **`try_oriented_tip_face_contact` tip-omit** — when a tip-omit segment fails
+   tip-face path/end gates, retry remaining orientation-cone quats (iter32 GUI
+   Ep9: ``approach_ok_dls`` then single ``tip_omit_reject side_graze`` aborted).
+2. **Radial reposition** — also trigger on tip-omit tip-face rejects while
+   EE-close (not only ``IK_FAIL`` substrings).
+
 ## Iter32: Reject tip-omit/approach ends that fail tip-face classify (2026-07-17)
 
 **Enumerated changes**
