@@ -1,6 +1,28 @@
 # STATUS — Residual Adaptive IK (MyCobot 280)
 
-Last updated: **2026-07-17** (failure drill-down — Phase 2 GUI **PASS** rate=0.979)
+Last updated: **2026-07-18** (README: project deprecated / unsupported)
+
+## Project status (2026-07-18)
+
+**This repository is no longer supported and will soon be replaced.** See the
+deprecation notice at the top of [README.md](README.md). Do not start new
+feature work here.
+
+## Demo GUI visualization smoke (2026-07-18 ~18:03)
+
+**Relaunched (demo; operator will abort early):** GUI ``visualize=48``
+``n_poses=240`` ``min_plan_ok_rate=0.95`` ``--early-abort-after-fails 0``
+``--no-reset-to-home`` — log ``/tmp/gui_demo_viz.log``.
+
+First attempt ended at Ep3 (``ok=2 fail=1``) when Kit stopped
+(``GUI_STOP`` / operator abort); rate gate then failed on the partial fill.
+
+## Full GUI visualization smoke (2026-07-17 ~22:36)
+
+**PASS:** GUI ``visualize=48`` ``n_poses=240`` ``min_plan_ok_rate=0.95``
+``--early-abort-after-fails 0`` ``--no-reset-to-home`` →
+``ok=46 fail=2 rate=0.958`` (episodes=48/48, ~12.2 min).
+Fails: Ep3 + Ep45 ``recovery_timeout`` (honest). Log ``/tmp/gui_full_viz.log``.
 
 ## Failure drill-down (2026-07-17 ~19:34+)
 

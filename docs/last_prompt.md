@@ -1,5 +1,23 @@
 # The last prompt executed in the Cursor Agent window:
 
+## BEGIN: 2026-07-18 18:09 -0700
+Indicate in README.md that this project is no longer supported and will soon be replaced.
+
+Commit and push to github on the wip_phase3 branch.
+
+When this is done rebase on the main branch and push to github on the main branch.
+## END
+
+# Old prompts:
+
+## BEGIN: 2026-07-18 18:03 -0700
+For demo purposes, rerun the full GUI viz smoke test. I will abort it early.
+## END
+
+## BEGIN: 2026-07-17 22:36 -0700
+Run the full GUI test with visualization.
+## END
+
 ## BEGIN: 2026-07-17 19:34 -0700
 Failure drill-down + handoff/far-tip fix
 
@@ -7,8 +25,6 @@ Implement the plan as specified, it is attached for your reference. Do NOT edit 
 
 To-do's from the plan have already been created. Do not create them again. Mark them as in_progress as you work, starting with the first one. Don't stop until you have completed all the to-dos.
 ## END
-
-# Old prompts:
 
 ## BEGIN: 2026-07-17 19:21 -0700
 I aborted this iteration because it is not clear that convergence is possible with the current approach. Instead I would prefer the following:

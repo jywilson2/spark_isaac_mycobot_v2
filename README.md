@@ -1,5 +1,10 @@
 # Residual Adaptive IK — MyCobot 280
 
+> **No longer supported.** This repository is **deprecated** and will soon be
+> replaced by a successor project. Do not start new work here; treat the tree
+> as an archive / reference only. Existing documentation and smoke history
+> remain for historical context ([STATUS.md](STATUS.md)).
+
 Classical inverse kinematics plus **bounded residual learning** for the Elephant Robotics MyCobot 280, using Isaac Sim, Isaac Lab, and ROS 2.
 
 ```text
@@ -9,7 +14,7 @@ Deterministic validation provides safety.
 ```
 
 **Authoritative requirements:** [spec.md](spec.md)  
-**Current status:** [STATUS.md](STATUS.md) — **Phase 1 complete**; **Phase 2 foundation on `wip_phase2`** (polish in progress). Briefing: [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md). Baseline: [docs/phase1_baseline.md](docs/phase1_baseline.md)
+**Current status:** [STATUS.md](STATUS.md) — **Phase 1 complete**; Phase 2 contact/planning stack on ``wip_phase3`` (GUI rate gate ≥ 0.95). Briefing: [docs/phase2_status_and_resume.md](docs/phase2_status_and_resume.md). Baseline: [docs/phase1_baseline.md](docs/phase1_baseline.md)
 **Agent policy:** [.cursorrules](.cursorrules)  
 **Prompt progression log:** [docs/last_prompt.md](docs/last_prompt.md)  
 **References:** [REFERENCES.md](REFERENCES.md)  

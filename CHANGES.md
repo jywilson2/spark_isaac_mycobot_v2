@@ -1,5 +1,18 @@
 # CHANGES — Scaffold inventory (2026-07-11)
 
+## README: project deprecated / unsupported (2026-07-18)
+
+**Enumerated changes**
+
+1. **`README.md`** — top-of-file notice: project is no longer supported and will
+   soon be replaced; treat as archive / reference only.
+
+## Full GUI viz re-run PASS rate=0.958 (2026-07-17 ~22:48)
+
+**Result:** GUI viz=48 n_poses=240 early-abort=0 → **PASS**
+``ok=46 fail=2 rate=0.958`` (min 0.95). Fails Ep3 + Ep45
+``recovery_timeout``. Log ``/tmp/gui_full_viz.log``.
+
 ## Drill Phase 2: Full GUI restore at min_plan_ok_rate=0.95 (2026-07-17)
 
 **Result:** GUI viz=48 n_poses=240 ``--early-abort-after-fails 0`` → **PASS**
